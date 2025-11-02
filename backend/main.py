@@ -5,39 +5,88 @@ import json
 import os
 import re
 import subprocess
-from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-# ----------------------------
-# Env & OpenAI client
-# ----------------------------
+# Optional deps for web parsing
+PLAYWRIGHT_OK = False
+try:
+    from playwright.sync_api import sync_playwright  # type: ignore
+    PLAYWRIGHT_OK = True
+except Exception:
+    PLAYWRIGHT_OK = False
+
+REQS_OK = False
+try:
+    import requests  # type: ignore
+    from bs4 import BeautifulSoup  # type: ignore
+    REQS_OK = True
+except Exception:
+    REQS_OK = False
+
+# -------- env & OpenAI --------
 load_dotenv()
 try:
     from openai import OpenAI
-    _openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-except Exception as _e:
-    _openai_client = None  # server can still run without OpenAI configured
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+except Exception:
+    client = None  # allow server to boot without OpenAI
 
-# ----------------------------
-# FastAPI app & CORS
-# ----------------------------
+# -------- tool manifest (capability-driven) --------
+TOOL_MANIFEST = [
+    {
+        "name": "text.transform",
+        "description": "LLM text transform on provided text (from args.text or clipboard).",
+        "requires_context": ["clipboard"],
+        "args": {
+            "operation": "one of: rewrite | summarize | translate | polish | expand | shorten",
+            "tone": "(optional) e.g., professional, friendly, concise",
+            "lang": "(optional) ISO code like en, fr, zh",
+            "max_words": "(optional, for summarize)"
+        },
+        "returns": { "result": "string (transformed text)" }
+    },
+    {
+        "name": "web.parse_find",
+        "description": "Open (or fetch) a page and locate a link or text that matches query terms; returns a URL or best snippet.",
+        "requires_context": [],
+        "args": {
+            "url": "(preferred) absolute URL to parse, OR",
+            "site": "(alternative) site key like 'twitter' or 'youtube' to construct a search URL",
+            "query": "what to search for on the page or site"
+        },
+        "returns": { "result": "URL string if found, else a reasonable search URL, else empty string" }
+    },
+    {
+        "name": "shortcut.run",
+        "description": "Run an Apple Shortcut by name.",
+        "requires_context": [],
+        "args": { "name": "Shortcut name" },
+        "returns": { "result": "string status" }
+    }
+]
+
+# -------- app --------
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("CORS_ALLOW_ORIGIN", "*")],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ----------------------------
-# Models (Plan schema + Tool calls)
-# ----------------------------
+# -------- models --------
+class GenerateContext(BaseModel):
+    clipboard: Optional[str] = None
+
+class GenerateReq(BaseModel):
+    command: str
+    context: Optional[GenerateContext] = None
 
 class Hotkey(BaseModel):
     combo: str
@@ -51,80 +100,39 @@ class Step(BaseModel):
         "open",
         "paste_text",
         "run_shortcut",
-        "run_tool",
         "set_clipboard",
         "paste_clipboard",
         "notify",
-        "save_file",
         "sleep_ms",
-        "type_text",
+        "run_tool"
     ]
-    # optional fields (used depending on type)
-    bundle: Optional[str] = None          # focus_app
-    keys: Optional[str] = None            # keystroke (e.g., "cmd+shift+a" or "enter")
-    target: Optional[str] = None          # open (url or path)
-    text: Optional[str] = None            # paste_text / set_clipboard / type_text
-    name: Optional[str] = None            # run_shortcut / run_tool (tool name)
-    args: Optional[Dict[str, Any]] = None # run_tool args
-    title: Optional[str] = None           # notify
-    body: Optional[str] = None            # notify
-    path: Optional[str] = None            # save_file
-    content: Optional[str] = None         # save_file
-    ms: Optional[int] = None              # sleep_ms
+    bundle: Optional[str] = None
+    keys: Optional[str] = None
+    target: Optional[str] = None
+    text: Optional[str] = None
+    name: Optional[str] = None
+    args: Optional[Dict[str, Any]] = None
+    title: Optional[str] = None
+    body: Optional[str] = None
+    ms: Optional[int] = None
 
 class Plan(BaseModel):
     hotkey: Hotkey
     steps: List[Step]
     notes: Optional[str] = None
 
-# ----------------------------
-# Capabilities registry (backend tools)
-# ----------------------------
+# -------- Hammerspoon compile/write/reload --------
+from pathlib import Path as _Path
+HAM_FILE = _Path.home() / ".hammerspoon" / "agentic.lua"
+HS_CLI = os.getenv("HS_CLI", "hs")
 
-class ToolDef(BaseModel):
-    name: str
-    description: str
-    # minimal arg doc; for production you can add jsonschema here
-    args_hint: Dict[str, str] = Field(default_factory=dict)
-
-TOOLS_REGISTRY: Dict[str, ToolDef] = {
-    "text.rewrite": ToolDef(
-        name="text.rewrite",
-        description="Rewrite input text according to a style/tone.",
-        args_hint={"tone": "e.g., professional, friendly, concise", "lang": "ISO code, optional"},
-    ),
-    "text.summarize": ToolDef(
-        name="text.summarize",
-        description="Summarize input text; optional max_words.",
-        args_hint={"max_words": "int, optional"},
-    ),
-    "shortcut.run": ToolDef(
-        name="shortcut.run",
-        description="Run an Apple Shortcut by name. args: {name}",
-        args_hint={"name": "Apple Shortcut name"},
-    ),
-    # stubs you can fill later:
-    "slack.post": ToolDef(
-        name="slack.post",
-        description="Post a message to Slack (stub).",
-        args_hint={"channel": "string", "text": "string"},
-    ),
-}
-
-# ----------------------------
-# Helpers: Hammerspoon compilation & reload
-# ----------------------------
-
-HAM_FILE = Path.home() / ".hammerspoon" / "agentic.lua"
-HS_CLI = os.getenv("HS_CLI", "hs")  # allow overriding the CLI path
-
-def _split_combo(combo: str):
+def _split_combo(combo: str) -> Tuple[List[str], str]:
     parts = combo.lower().split("+")
     key = parts.pop()
     if key == "enter":
-        key = "return"  # Hammerspoon uses "return"
+        key = "return"
     norm = {"option":"alt","alt":"alt","cmd":"cmd","command":"cmd","control":"ctrl","ctrl":"ctrl","shift":"shift"}
-    mods = [norm.get(p, p) for p in parts]
+    mods = [norm.get(p, p) for p in parts if p]
     return mods, key
 
 def _lua_arr(xs: List[str]) -> str:
@@ -133,15 +141,34 @@ def _lua_arr(xs: List[str]) -> str:
 def _lua_str(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\"') + '"'
 
+def _lua_lit(v: Any) -> str:
+    if isinstance(v, dict):
+        parts = []
+        for k, val in v.items():
+            parts.append(f'{k} = {_lua_lit(val)}')
+        return '{ ' + ', '.join(parts) + ' }'
+    if isinstance(v, list):
+        return '{ ' + ', '.join(_lua_lit(x) for x in v) + ' }'
+    if isinstance(v, str):
+        return _lua_str(v)
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
+    if v is None:
+        return 'nil'
+    return str(v)
+
 def _emit_step_lua(s: Step) -> str:
-    # Map each step to Lua (synchronous where possible to keep plan order)
     if s.type == "focus_app" and s.bundle:
         return f'hs.application.launchOrFocusByBundleID({_lua_str(s.bundle)})'
     if s.type == "keystroke" and s.keys:
         mods, key = _split_combo(s.keys)
         return f'hs.eventtap.keyStroke({_lua_arr(mods)}, "{key}", 0)'
     if s.type == "open" and s.target:
-        return f"hs.execute('/usr/bin/open ' .. {_lua_str(s.target)}, true)"
+        tgt = s.target
+        # Use URL opener for http(s), fall back to /usr/bin/open for file paths
+        if isinstance(tgt, str) and (tgt.startswith("http://") or tgt.startswith("https://")):
+            return f"hs.urlevent.openURL({_lua_str(tgt)})"
+        return f"hs.execute('/usr/bin/open ' .. {_lua_str(tgt)}, true)"
     if s.type == "paste_text" and s.text is not None:
         return f'hs.pasteboard.setContents({_lua_str(s.text)}); hs.eventtap.keyStroke({{"cmd"}}, "v", 0)'
     if s.type == "run_shortcut" and s.name:
@@ -154,45 +181,26 @@ def _emit_step_lua(s: Step) -> str:
         title = _lua_str(s.title or "Stroke.ai")
         body = _lua_str(s.body or "")
         return f'hs.notify.new({{title={title}, informativeText={body}}}):send()'
-    if s.type == "save_file" and s.path is not None:
-        content = _lua_str(s.content or "")
-        return f'local f=io.open({_lua_str(s.path)}, "w"); if f then f:write({content}); f:close() end'
     if s.type == "sleep_ms" and s.ms is not None:
         return f'hs.timer.usleep({s.ms} * 1000)'
-
-    if s.type == "type_text" and s.text is not None:
-        return f'hs.eventtap.keyStrokes({_lua_str(s.text)})'
-
-
-    # run_tool: synchronous HTTP POST to your FastAPI server
     if s.type == "run_tool" and s.name:
-        payload = {
-            "name": s.name,
-            "args": s.args or {},
-            # clipboard is often useful; fetch on the Lua side just before call
-            # We'll embed a placeholder; Lua will substitute the current clipboard at runtime.
-        }
-        payload_json = _lua_str(json.dumps(payload))
-        # Build final payload in Lua so clipboard is fresh
+        lua_base = f'{{ name = {_lua_str(s.name)}, args = {_lua_lit(s.args or {})} }}'
         return (
             'do '
             'local clip = hs.pasteboard.getContents() or "" '
-            f'local base = {payload_json} '
+            f'local base = {lua_base} '
             'base["clipboard"] = clip '
             'local url = "http://127.0.0.1:8000/api/run-tool" '
             'local headers = { ["Content-Type"] = "application/json" } '
             'local body = hs.json.encode(base) '
-            'local status, resp, _ = hs.http.post(url, body, headers) '
+            'local status, resp = hs.http.post(url, body, headers) '
             'if status == 200 then '
             '  local ok, parsed = pcall(hs.json.decode, resp) '
-            '  if ok and parsed and parsed.result then '
-            '    hs.pasteboard.setContents(parsed.result) '
-            '  else hs.alert.show("Tool error: bad JSON") end '
+            '  if ok and parsed and parsed.result then hs.pasteboard.setContents(parsed.result) end '
             'else hs.alert.show("Tool HTTP "..tostring(status)) end '
             'end'
         )
-
-    return f'-- unsupported or missing fields for step: {json.dumps(s.model_dump())}'
+    return f'-- unsupported: {s.model_dump_json()}'
 
 def compile_lua_block(plan: Plan) -> str:
     mods, key = _split_combo(plan.hotkey.combo)
@@ -200,7 +208,7 @@ def compile_lua_block(plan: Plan) -> str:
     if plan.hotkey.scope == "app" and plan.hotkey.appBundleId:
         gate = f'if hs.application.frontmostApplication():bundleID() ~= {_lua_str(plan.hotkey.appBundleId)} then return end'
     body = "\n  ".join(_emit_step_lua(s) for s in plan.steps)
-    block = f"""
+    return f"""
 -- BEGIN GENERATED {plan.hotkey.combo}
 hs.hotkey.bind({_lua_arr(mods)}, "{key}", function()
   {gate}
@@ -208,15 +216,11 @@ hs.hotkey.bind({_lua_arr(mods)}, "{key}", function()
 end)
 -- END GENERATED {plan.hotkey.combo}
 """.strip("\n")
-    return block
 
 def upsert_block(block_id: str, block: str) -> None:
     HAM_FILE.parent.mkdir(parents=True, exist_ok=True)
     content = HAM_FILE.read_text(encoding="utf-8") if HAM_FILE.exists() else ""
-    pattern = re.compile(
-        rf"-- BEGIN GENERATED {re.escape(block_id)}[\s\S]*?-- END GENERATED {re.escape(block_id)}",
-        re.M,
-    )
+    pattern = re.compile(rf"-- BEGIN GENERATED {re.escape(block_id)}[\s\S]*?-- END GENERATED {re.escape(block_id)}", re.M)
     if pattern.search(content):
         content = pattern.sub(block, content)
     else:
@@ -229,217 +233,344 @@ def reload_hammerspoon() -> None:
     try:
         subprocess.run([HS_CLI, "-c", "hs.reload()"], check=True, timeout=5)
     except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="Hammerspoon CLI not found. Set HS_CLI env or install CLI.")
+        raise HTTPException(status_code=500, detail="Hammerspoon CLI not found. Set HS_CLI or install CLI.")
     except subprocess.CalledProcessError as e:
         raise HTTPException(status_code=500, detail=f"Hammerspoon reload failed: {e}")
 
-# ----------------------------
-# OpenAI planner (text -> Plan)
-# ----------------------------
-
-SYSTEM_PROMPT = """
+# -------- prompt (plan + runtime only) --------
+SYSTEM_PROMPT_TEMPLATE = """
 You convert natural language into a deterministic desktop automation plan for macOS.
 
-Return ONLY a single JSON object with this schema:
+Return ONLY one JSON object with this exact shape:
 
 {
-  "hotkey": { "combo": "string like 'alt+shift+m'", "scope": "global|app", "appBundleId": "optional string" },
-  "steps": [
-    { "type": "focus_app", "bundle": "bundle id" } |
-    { "type": "open", "target": "url or absolute path" } |
-    { "type": "keystroke", "keys": "cmd+shift+a" } |
-    { "type": "paste_text", "text": "string" } |
-    { "type": "set_clipboard", "text": "string" } |
-    { "type": "paste_clipboard" } |
-    { "type": "run_shortcut", "name": "Apple Shortcuts name" } |
-    { "type": "sleep_ms", "ms":  integer milliseconds } |
-    { "type": "notify", "title": "string", "body": "string" } |
-    { "type": "run_tool", "name": "tool name", "args": { "k": "v" } }
-  ],
-  "notes": "optional string"
+  "plan": {
+    "hotkey": { "combo": "string like 'alt+shift+m'", "scope": "global|app", "appBundleId": "optional string" },
+    "steps": [
+      { "type": "focus_app", "bundle": "bundle id" } |
+      { "type": "open", "target": "url or absolute path" } |
+      { "type": "keystroke", "keys": "cmd+shift+a" } |
+      { "type": "paste_text", "text": "string" } |
+      { "type": "set_clipboard", "text": "string" } |
+      { "type": "paste_clipboard" } |
+      { "type": "run_shortcut", "name": "Apple Shortcuts name" } |
+      { "type": "sleep_ms", "ms": integer milliseconds } |
+      { "type": "notify", "title": "string", "body": "string" } |
+      { "type": "run_tool", "name": "tool name", "args": { "k": "v" } }
+    ],
+    "notes": "optional string"
+  },
+  "runtime": "static" | "dynamic"
 }
 
-General rules:
-- Output MUST be valid JSON only (no prose). One object, no trailing text.
-- Normalize modifiers to: cmd, ctrl, alt, shift (lowercase). Key is a single character or a well-known named key.
-- If the user specifies a hotkey, use it; otherwise default to "alt+shift+k".
-- If the user says “only in {app}”, set scope:"app" and appBundleId to the known bundle id (e.g., Zoom "us.zoom.xos", Slack "com.tinyspeck.slackmacgap", Safari "com.apple.Safari", Chrome "com.google.Chrome", VS Code "com.microsoft.VSCode").
-- Insert small waits when a UI change precedes typing/pasting: use { "type":"sleep_ms", "ms": 120 } (or 150–300ms after opening/focusing an app).
-- Never invent shell commands. Use only the step types listed.
+Global rules:
+- Output MUST be valid JSON only (no prose). Exactly one object with "plan" and "runtime".
+- Normalize modifiers to: cmd, ctrl, alt, shift (lowercase). Use "return" (not "enter").
+- If a hotkey is provided, use it; otherwise default to "alt+shift+k".
+- Insert small waits when UI changes precede typing/pasting or action chaining: { "type":"sleep_ms","ms":120 } (200–300ms after opening heavy apps/pages).
+- Web load wait: After any { "type":"open", "target":"http(s)://..." } you MUST insert { "type":"sleep_ms", "ms": 3000 } before subsequent actions on that page.
+- Never invent shell commands or step types not listed above.
 
-CRITICAL BEHAVIOR FOR REWRITING/REWORDING:
-- If the user asks to **rewrite, reword, polish, paraphrase, edit for tone, improve wording, make more professional, make clearer**, or similar:
-  1) ALWAYS copy the user’s current selection,
-  2) wait briefly,
-  3) call a backend tool to perform the rewrite,
-  4) wait briefly,
-  5) paste the result in place.
-- Emit this exact canonical sequence (adjust tone if requested):
+Tool manifest (use ONLY these with { "type":"run_tool" }):
+<TOOL_MANIFEST_JSON>
+
+Site search preference:
+- Prefer in-page search using:
+  { "type":"keystroke","keys":"cmd+f" } → { "type":"paste_text","text":"<query>" } → { "type":"keystroke","keys":"return" }.
+- ONLY use Cmd+L (address bar) or direct search URLs when the user explicitly asks to navigate to a search results page.
+
+Selected-text transforms (dynamic):
 [
-  { "type": "keystroke", "keys": "cmd+c" },
-  { "type": "sleep_ms", "ms": 120 },
-  { "type": "run_tool", "name": "text.rewrite", "args": { "tone": "<inferred tone or 'professional'>" } },
-  { "type": "sleep_ms", "ms": 120 },
-  { "type": "paste_clipboard" }
+  { "type":"keystroke","keys":"cmd+c" },
+  { "type":"sleep_ms","ms":120 },
+  { "type":"run_tool","name":"text.transform","args":{ "operation":"rewrite","tone":"professional" } },
+  { "type":"sleep_ms","ms":120 },
+  { "type":"paste_clipboard" }
 ]
-- DO NOT ask the user to provide the text. Assume the selected text is available at hotkey time and will be copied via cmd+c.
-- If a tone is mentioned (e.g., “professional”, “friendly”, “concise”), include it in args.tone. If multiple tones are given, choose the most specific.
 
-Search & navigation (keep generic, not site-specific):
-- Prefer deterministic search URLs when possible. For “open {site} and search for {query}”, emit a single open step to the site’s search URL with the encoded query (e.g., YouTube: https://www.youtube.com/results?search_query=<encoded>).
-- If you are unsure of a site’s search URL, fall back to:
-  [
-    { "type":"focus_app","bundle":"com.google.Chrome" },   // or "com.apple.Safari"
-    { "type":"open","target":"https://<site>" },
-    { "type":"sleep_ms","ms":300 },
-    { "type":"keystroke","keys":"cmd+l" },
-    { "type":"paste_text","text":"https://<site>/search?q=<encoded query>" },
-    { "type":"keystroke","keys":"enter" }
-  ]
+Web parsing (dynamic) — when the user says "find/scroll until you see ...":
+- Use { "type":"run_tool","name":"web.parse_find","args":{ "url":"<if known>", "site":"<if not>", "query":"<what to look for>" } }
+- After it returns a URL, you may navigate deterministically only if the user asked to open that result.
 
-Output only the JSON object matching the schema. No explanations.
+Find/scroll in any app (static UI pattern):
+- To search within the current app: { "type":"keystroke","keys":"cmd+f" } → { "type":"paste_text","text":"<query>" } → small wait → { "type":"keystroke","keys":"return" }.
+- To scroll: prefer page-down sequences: { "type":"keystroke","keys":"pagedown" } repeated; for top/bottom: { "type":"keystroke","keys":"cmd+up" } / { "type":"keystroke","keys":"cmd+down" }.
+
+Classification (set "runtime"):
+- "static" when steps are fully deterministic (direct URLs, fixed keystrokes, no run_tool that needs live text).
+- "dynamic" when using run_tool (text.transform or web.parse_find) or when live context is required.
+
+Output only the JSON object with "plan" and "runtime". No explanations.
 """.strip()
 
-def planner_generate_plan(command: str) -> Dict[str, Any]:
-    if not _openai_client:
-        # Fallback: trivial plan
-        return {
-            "hotkey": {"combo": "alt+shift+k", "scope": "global"},
-            "steps": [{"type": "notify", "title": "Planner offline", "body": command}],
-        }
-    sys = SYSTEM_PROMPT.replace("{TOOLS}", json.dumps([t for t in TOOLS_REGISTRY.keys()]))
-    try:
-        resp = _openai_client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
-            temperature=0,
-            max_tokens=500,
-            messages=[
-                {"role": "system", "content": sys},
-                {"role": "user", "content": command},
-            ],
-        )
-        content = (resp.choices[0].message.content or "").strip()
-        # try to parse JSON
-        return json.loads(content)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Planner error: {e}")
+def build_system_prompt() -> str:
+    return SYSTEM_PROMPT_TEMPLATE.replace("<TOOL_MANIFEST_JSON>", json.dumps(TOOL_MANIFEST, ensure_ascii=False))
 
-# ----------------------------
-# Tool executors
-# ----------------------------
+# -------- auto-repairs --------
+def ensure_dynamic_runtime_hooks(plan: Dict[str, Any]) -> Dict[str, Any]:
+    steps = plan.get("steps") or []
+    if any(s.get("type") == "run_tool" for s in steps):
+        return plan
+    paste_idx = next((i for i, s in enumerate(steps) if s.get("type") == "paste_clipboard"), None)
+    inject: List[Dict[str, Any]] = [
+        {"type": "keystroke", "keys": "cmd+c"},
+        {"type": "sleep_ms", "ms": 120},
+        {"type": "run_tool", "name": "text.transform", "args": {"operation": "rewrite", "tone": "professional"}},
+        {"type": "sleep_ms", "ms": 120},
+    ]
+    if paste_idx is None:
+        plan["steps"] = steps + inject + [{"type": "paste_clipboard"}]
+    else:
+        plan["steps"] = steps[:paste_idx] + inject + steps[paste_idx:]
+    return plan
 
-class RunToolReq(BaseModel):
-    name: str
-    args: Dict[str, Any] = Field(default_factory=dict)
-    clipboard: Optional[str] = None
+def ensure_web_load_delays(plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Insert a 3s delay after any open step to an http(s) URL, unless a >=3000ms sleep is already next."""
+    steps = plan.get("steps") or []
+    out: List[Dict[str, Any]] = []
+    i = 0
+    while i < len(steps):
+        step = steps[i]
+        out.append(step)
+        if step.get("type") == "open":
+            tgt = (step.get("target") or "").strip()
+            if tgt.startswith("http://") or tgt.startswith("https://"):
+                nxt = steps[i+1] if i+1 < len(steps) else None
+                if not (isinstance(nxt, dict) and nxt.get("type") == "sleep_ms" and (nxt.get("ms") or 0) >= 3000):
+                    out.append({"type": "sleep_ms", "ms": 3000})
+        i += 1
+    plan["steps"] = out
+    return plan
 
-class RunToolRes(BaseModel):
-    result: str
+def normalize_open_followup_to_cmdf(plan: Dict[str, Any]) -> Dict[str, Any]:
+    """After an http(s) open, replace an immediate Cmd+L with Cmd+F (keep subsequent paste/return)."""
+    steps = plan.get("steps") or []
+    for i in range(len(steps) - 1):
+        s = steps[i]
+        if s.get("type") == "open":
+            tgt = (s.get("target") or "").strip()
+            if tgt.startswith("http://") or tgt.startswith("https://"):
+                nxt = steps[i+1]
+                if isinstance(nxt, dict) and nxt.get("type") == "keystroke" and (nxt.get("keys") or "").lower() == "cmd+l":
+                    steps[i+1] = {**nxt, "keys": "cmd+f"}
+    plan["steps"] = steps
+    return plan
 
-def _exec_text_rewrite(args: Dict[str, Any], clipboard: Optional[str]) -> str:
-    tone = args.get("tone", "professional")
-    lang = args.get("lang", "en")
-    text = args.get("text") or clipboard or ""
-    if not text:
-        return "[stroke.ai] No input text found."
-    if not _openai_client:
-        return f"[offline rewrite→{tone}] {text}"
-    sys = "You rewrite the user's text exactly as asked. Only output the rewritten text. Keep formatting."
-    user = f"Rewrite this text in a {tone} tone (lang={lang}):\n\n{text}"
-    chat = _openai_client.chat.completions.create(
-        model=os.getenv("OPENAI_MODEL_REWRITE", os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")),
-        temperature=0,
-        max_tokens=1200,
-        messages=[{"role": "system", "content": sys}, {"role": "user", "content": user}],
-    )
-    return (chat.choices[0].message.content or "").strip()
-
-def _exec_text_summarize(args: Dict[str, Any], clipboard: Optional[str]) -> str:
-    max_words = int(args.get("max_words", 120))
-    text = args.get("text") or clipboard or ""
-    if not text:
-        return "[stroke.ai] No input text to summarize."
-    if not _openai_client:
-        return f"[offline summary ≤{max_words}w] {text[:200]}..."
-    sys = "You summarize text concisely. Only output the summary."
-    user = f"Summarize in at most {max_words} words:\n\n{text}"
-    chat = _openai_client.chat.completions.create(
-        model=os.getenv("OPENAI_MODEL_SUMMARY", os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")),
-        temperature=0,
-        max_tokens=600,
-        messages=[{"role": "system", "content": sys}, {"role": "user", "content": user}],
-    )
-    return (chat.choices[0].message.content or "").strip()
-
-def _exec_shortcut_run(args: Dict[str, Any], clipboard: Optional[str]) -> str:
-    name = args.get("name")
-    if not name:
-        return "[stroke.ai] Missing Apple Shortcut name."
-    try:
-        subprocess.run(["/usr/bin/shortcuts", "run", str(name)], check=True, timeout=15)
-        return f"Ran Apple Shortcut: {name}"
-    except Exception as e:
-        return f"[stroke.ai] Shortcut run failed: {e}"
-
-# Stub examples for future integrations
-def _exec_slack_post(args: Dict[str, Any], clipboard: Optional[str]) -> str:
-    channel = args.get("channel", "#general")
-    text = args.get("text") or clipboard or "(empty)"
-    # TODO: implement Slack API call
-    return f"[stub] Would post to {channel}: {text[:120]}"
-
-TOOLS_EXECUTORS = {
-    "text.rewrite": _exec_text_rewrite,
-    "text.summarize": _exec_text_summarize,
-    "shortcut.run": _exec_shortcut_run,
-    "slack.post": _exec_slack_post,
-}
-
-# ----------------------------
-# Endpoints
-# ----------------------------
-
+# -------- endpoints --------
 @app.get("/")
 def home():
-    return {"status": "ok", "message": "stroke.ai backend running"}
-
-class GenerateReq(BaseModel):
-    command: str
+    return {"status": "ok"}
 
 @app.post("/api/generate-script")
 def generate_script(payload: GenerateReq):
     command = (payload.command or "").strip()
     if not command:
         raise HTTPException(status_code=400, detail="Missing 'command'")
-    plan = planner_generate_plan(command)
-    # minimal validation
+
+    if client is None:
+        dummy = {
+            "plan": {
+                "hotkey": {"combo": "alt+shift+k", "scope": "global"},
+                "steps": [{"type": "notify", "title": "Planner offline", "body": command}],
+                "notes": "offline"
+            },
+            "runtime": "static"
+        }
+        return {"status": "success", **dummy}
+
+    try:
+        response = client.chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
+            messages=[
+                {"role": "system", "content": build_system_prompt()},
+                {"role": "user", "content": command},
+            ],
+            max_tokens=900,
+            temperature=0,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        obj = json.loads(content)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Planner failure: {e}")
+
+    if "plan" in obj and "runtime" in obj:
+        plan = obj["plan"]
+        runtime = obj["runtime"]
+    else:
+        plan = obj
+        runtime = "dynamic"
+
+    if runtime == "dynamic":
+        plan = ensure_dynamic_runtime_hooks(plan)
+
+    # Always enforce 3s wait after web opens and prefer Cmd-F
+    plan = ensure_web_load_delays(plan)
+    plan = normalize_open_followup_to_cmdf(plan)
+
     if "hotkey" not in plan or "steps" not in plan:
-        raise HTTPException(status_code=502, detail="Planner returned invalid plan")
-    return {"status": "success", "plan": plan}
+        raise HTTPException(status_code=422, detail="Invalid plan returned")
+
+    return {"status": "success", "plan": plan, "runtime": runtime}
 
 @app.post("/api/apply-plan")
 def apply_plan(plan_payload: Dict[str, Any] = Body(...)):
-    print(plan_payload)
-    # Accept dict for flexibility; validate with Plan
     try:
         plan = Plan(**plan_payload)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Invalid plan: {e}")
+
     lua_block = compile_lua_block(plan)
     upsert_block(plan.hotkey.combo, lua_block)
-    # try reload; user may not have CLI installed yet
     reload_hammerspoon()
     return {"status": "ok", "applied": True, "combo": plan.hotkey.combo}
 
-@app.post("/api/run-tool", response_model=RunToolRes)
-def run_tool(req: RunToolReq):
-    name = req.name
-    if name not in TOOLS_EXECUTORS:
-        raise HTTPException(status_code=404, detail=f"Unknown tool '{name}'")
+# -------- /api/run-tool (generic dispatch) --------
+class RunToolReq(BaseModel):
+    name: str
+    args: Dict[str, Any] = {}
+    clipboard: Optional[str] = None
+
+class RunToolRes(BaseModel):
+    result: str
+
+def exec_text_transform(args: Dict[str, Any], clipboard: Optional[str]) -> str:
+    operation = (args.get("operation") or "rewrite").lower()
+    tone      = args.get("tone")
+    lang      = args.get("lang")
+    max_words = args.get("max_words")
+    src       = args.get("text") or (clipboard or "")
+    if not src:
+        return ""
+
+    instr = f"{operation} the text"
+    if operation == "summarize" and max_words:
+        instr = f"summarize the text in at most {int(max_words)} words"
+    if operation == "translate" and lang:
+        instr = f"translate the text into {lang}"
+    if tone and operation in ("rewrite","polish","expand","shorten"):
+        instr += f" with a {tone} tone"
+    instr += ". Only output the transformed text. Preserve basic formatting when reasonable."
+
+    if client is None:
+        return src
+
+    chat = client.chat.completions.create(
+        model=os.getenv("OPENAI_MODEL_TRANSFORM", os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")),
+        temperature=0,
+        max_tokens=1200,
+        messages=[
+            {"role":"system","content":"You are a careful text transformer."},
+            {"role":"user","content": f"{instr}\n\n---\n{src}\n---"}
+        ],
+    )
+    return (chat.choices[0].message.content or "").strip()
+
+def _construct_search_url(site: str, query: str) -> Optional[str]:
+    q = query.replace(" ", "%20")
+    s = site.lower()
+    if s in ("twitter", "x"):
+        return f"https://twitter.com/search?q={q}&src=typed_query&f=live"
+    if s in ("youtube", "yt"):
+        return f"https://www.youtube.com/results?search_query={q}"
+    if s in ("google", "web"):
+        return f"https://www.google.com/search?q={q}"
+    return None
+
+def exec_web_parse_find(args: Dict[str, Any]) -> str:
+    url = args.get("url")
+    site = args.get("site")
+    query = (args.get("query") or "").strip()
+    if not url and not site:
+        return ""
+
+    # If no URL but we have a site+query, construct a search URL
+    if not url and site and query:
+        candidate = _construct_search_url(site, query)
+        if candidate:
+            url = candidate
+
+    if not url:
+        return ""
+
+    # Try Playwright (handles JS-heavy sites)
+    if PLAYWRIGHT_OK:
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                # crude scroll to load content
+                for _ in range(8):
+                    page.mouse.wheel(0, 1200)
+                    page.wait_for_timeout(400)
+                html = page.content()
+                browser.close()
+            # Very simple heuristic: find a link that contains any query term
+            terms = [t.lower() for t in re.split(r"\s+|\bOR\b|\bor\b", query) if t]
+            best = None
+            if REQS_OK:
+                soup = BeautifulSoup(html, "html.parser")
+                for a in soup.find_all("a", href=True):
+                    text = (a.get_text() or "").lower()
+                    if any(t in text for t in terms):
+                        href = a["href"]
+                        if href.startswith("/") and "twitter.com" in url:
+                            href = "https://twitter.com" + href
+                        best = href
+                        break
+            # Fallback: just return the search URL
+            return best or url
+        except Exception:
+            pass
+
+    # Fallback: requests + BS4 for non-JS pages
+    if REQS_OK:
+        try:
+            r = requests.get(url, timeout=12, headers={"User-Agent":"Mozilla/5.0"})
+            soup = BeautifulSoup(r.text, "html.parser")
+            terms = [t.lower() for t in re.split(r"\s+|\bOR\b|\bor\b", query) if t]
+            for a in soup.find_all("a", href=True):
+                text = (a.get_text() or "").lower()
+                if any(t in text for t in terms):
+                    href = a["href"]
+                    if href.startswith("/") and "twitter.com" in url:
+                        href = "https://twitter.com" + href
+                    return href
+            return url
+        except Exception:
+            return url
+
+    # Last resort: return the deterministic URL so the plan can navigate
+    return url
+
+def exec_shortcut_run(args: Dict[str, Any]) -> str:
+    name = args.get("name")
+    if not name:
+        return "[missing shortcut name]"
     try:
-        result = TOOLS_EXECUTORS[name](req.args or {}, req.clipboard)
-        return {"result": result}
-    except HTTPException:
-        raise
+        subprocess.run(["/usr/bin/shortcuts", "run", str(name)], check=True, timeout=15)
+        return f"Ran: {name}"
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Tool error: {e}")
+        return f"[failed] {e}"
+
+TOOLS_EXECUTORS = {
+    "text.transform": lambda a, clip: exec_text_transform(a, clip),
+    "web.parse_find": lambda a, clip: exec_web_parse_find(a),
+    "shortcut.run":   lambda a, clip: exec_shortcut_run(a),
+}
+
+@app.post("/api/run-tool", response_model=RunToolRes)
+def run_tool(req: "RunToolReq"):
+    fn = TOOLS_EXECUTORS.get(req.name)
+    if not fn:
+        raise HTTPException(status_code=404, detail=f"Unknown tool: {req.name}")
+    try:
+        result = fn(req.args or {}, req.clipboard)
+        return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Tool error: {e}" )
+
+class RunToolReq(BaseModel):
+    name: str
+    args: Dict[str, Any] = {}
+    clipboard: Optional[str] = None
