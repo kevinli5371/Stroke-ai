@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -40,19 +39,33 @@ except Exception:
 TOOL_MANIFEST = [
     {
         "name": "text.transform",
-        "description": "LLM text transform on provided text (from args.text or clipboard).",
+        "description": "Transform provided text (from args.text or clipboard): rewrite/summarize/translate/polish/expand/shorten.",
         "requires_context": ["clipboard"],
         "args": {
-            "operation": "one of: rewrite | summarize | translate | polish | expand | shorten",
-            "tone": "(optional) e.g., professional, friendly, concise",
+            "operation": "rewrite | summarize | translate | polish | expand | shorten",
+            "tone": "(optional) professional, friendly, concise",
             "lang": "(optional) ISO code like en, fr, zh",
-            "max_words": "(optional, for summarize)"
+            "max_words": "(optional, for summarize)",
+            "text": "(optional) override clipboard source"
         },
         "returns": { "result": "string (transformed text)" }
     },
     {
+        "name": "text.compose",
+        "description": "Generate new text from instructions (no input text required).",
+        "requires_context": [],
+        "args": {
+            "instruction": "what to write; keep it short and explicit",
+            "tone": "(optional) professional, friendly, playful, concise",
+            "format": "(optional) e.g., bullets, sentence, paragraph",
+            "length": "(optional) short | medium | long",
+            "lang": "(optional) ISO code like en, fr, zh"
+        },
+        "returns": { "result": "string (newly composed text)" }
+    },
+    {
         "name": "web.parse_find",
-        "description": "Open (or fetch) a page and locate a link or text that matches query terms; returns a URL or best snippet.",
+        "description": "Open/fetch a page and locate a link or text that matches query terms; returns a URL or best snippet.",
         "requires_context": [],
         "args": {
             "url": "(preferred) absolute URL to parse, OR",
@@ -263,23 +276,46 @@ Return ONLY one JSON object with this exact shape:
   "runtime": "static" | "dynamic"
 }
 
-Global rules:
+Global rules (strict)
 - Output MUST be valid JSON only (no prose). Exactly one object with "plan" and "runtime".
 - Normalize modifiers to: cmd, ctrl, alt, shift (lowercase). Use "return" (not "enter").
-- If a hotkey is provided, use it; otherwise default to "alt+shift+k".
-- Insert small waits when UI changes precede typing/pasting or action chaining: { "type":"sleep_ms","ms":120 } (200–300ms after opening heavy apps/pages).
-- Web load wait: After any { "type":"open", "target":"http(s)://..." } you MUST insert { "type":"sleep_ms", "ms": 3000 } before subsequent actions on that page.
-- Never invent shell commands or step types not listed above.
+- If no hotkey is provided, default to "alt+shift+k".
+- Insert short waits when UI changes precede typing/pasting: { "type":"sleep_ms","ms":120 }.
+- Web load wait: after any { "type":"open", "target": "http(s)://..." } insert { "type":"sleep_ms","ms":3000 } before any action on that page.
+- Do only what the user asked. Do not add extra steps or tools.
+  - Do not change text, rewrite, summarize, translate, or “polish” unless the user explicitly asks for that.
+  - Do not copy or paste unless needed for the requested action.
+  - Do not emit run_tool unless the user explicitly requests the capability or it is truly unavoidable to satisfy the request.
+- Keystrokes: Prefer modifier shortcuts (cmd+f, cmd+l, pagedown, arrows, return). Avoid unmodified single-character keys unless explicitly requested or absolutely necessary.
+- Never type characters one-by-one to form words or URLs. If you must enter text, use a single { "type":"paste_text", "text":"<full string>" } then { "type":"keystroke","keys":"return" }.
+- Never invent shell commands or step types not listed.
 
-Tool manifest (use ONLY these with { "type":"run_tool" }):
+Tool manifest
+Use ONLY these with { "type": "run_tool" }:
 <TOOL_MANIFEST_JSON>
 
-Site search preference:
-- Prefer in-page search using:
-  { "type":"keystroke","keys":"cmd+f" } → { "type":"paste_text","text":"<query>" } → { "type":"keystroke","keys":"return" }.
-- ONLY use Cmd+L (address bar) or direct search URLs when the user explicitly asks to navigate to a search results page.
+Site search (preferred) vs Cmd-F (fallback)
+- If the site has a deterministic search feature, use it FIRST by navigating to a search URL or focusing the site’s search field. Examples:
+  - Pinterest: https://www.pinterest.com/search/pins/?q=<encoded>
+  - Twitter/X: https://twitter.com/search?q=<encoded>&src=typed_query&f=live
+  - YouTube:   https://www.youtube.com/results?search_query=<encoded>
+  - Reddit:    https://www.reddit.com/search/?q=<encoded>
+  - GitHub:    https://github.com/search?q=<encoded>
+  - Amazon:    https://www.amazon.com/s?k=<encoded>
+  - Google:    https://www.google.com/search?q=<encoded>
+- ONLY use Cmd+F when the user explicitly asks to “find on this page” or when no reliable site search exists.
+- After any site search navigation (http/https open) insert { "type":"sleep_ms","ms":3000 } before typing or further actions.
 
-Selected-text transforms (dynamic):
+Composition (generate new text — always DYNAMIC)
+- When the user asks to write/create/generate/draft/compose something (no source text), set "runtime":"dynamic" and use:
+  [
+    { "type":"run_tool","name":"text.compose","args":{ "instruction":"<what to write>", "tone":"<if relevant>", "format":"<if relevant>", "length":"short|medium|long", "lang":"<if relevant>" } },
+    { "type":"sleep_ms","ms":120 },
+    { "type":"paste_clipboard" }
+  ]
+- Do NOT open websites for composition unless the user asked to open a specific page to paste into; otherwise paste into the current app.
+
+Selected-text transforms (dynamic)
 [
   { "type":"keystroke","keys":"cmd+c" },
   { "type":"sleep_ms","ms":120 },
@@ -290,15 +326,11 @@ Selected-text transforms (dynamic):
 
 Web parsing (dynamic) — when the user says "find/scroll until you see ...":
 - Use { "type":"run_tool","name":"web.parse_find","args":{ "url":"<if known>", "site":"<if not>", "query":"<what to look for>" } }
-- After it returns a URL, you may navigate deterministically only if the user asked to open that result.
+- After it returns a URL, navigate only if the user asked to open that result.
 
-Find/scroll in any app (static UI pattern):
-- To search within the current app: { "type":"keystroke","keys":"cmd+f" } → { "type":"paste_text","text":"<query>" } → small wait → { "type":"keystroke","keys":"return" }.
-- To scroll: prefer page-down sequences: { "type":"keystroke","keys":"pagedown" } repeated; for top/bottom: { "type":"keystroke","keys":"cmd+up" } / { "type":"keystroke","keys":"cmd+down" }.
-
-Classification (set "runtime"):
-- "static" when steps are fully deterministic (direct URLs, fixed keystrokes, no run_tool that needs live text).
-- "dynamic" when using run_tool (text.transform or web.parse_find) or when live context is required.
+Classification
+- "static" when steps are fully deterministic (direct URLs, fixed keystrokes, no tools that need live context).
+- "dynamic" when using run_tool (text.transform, text.compose, web.parse_find) or when live context is required.
 
 Output only the JSON object with "plan" and "runtime". No explanations.
 """.strip()
@@ -308,6 +340,7 @@ def build_system_prompt() -> str:
 
 # -------- auto-repairs --------
 def ensure_dynamic_runtime_hooks(plan: Dict[str, Any]) -> Dict[str, Any]:
+    # Only inject for dynamic selected-text rewrite if the model forgot
     steps = plan.get("steps") or []
     if any(s.get("type") == "run_tool" for s in steps):
         return plan
@@ -355,6 +388,67 @@ def normalize_open_followup_to_cmdf(plan: Dict[str, Any]) -> Dict[str, Any]:
                     steps[i+1] = {**nxt, "keys": "cmd+f"}
     plan["steps"] = steps
     return plan
+
+# ---- Prefer native site search over Cmd-F (auto-repair) ----
+def _encode_q(q: str) -> str:
+    return q.strip().replace(" ", "%20")
+
+KNOWN_SITE_SEARCH = {
+    "twitter.com":   lambda q: f"https://twitter.com/search?q={_encode_q(q)}&src=typed_query&f=live",
+    "x.com":         lambda q: f"https://twitter.com/search?q={_encode_q(q)}&src=typed_query&f=live",
+    "youtube.com":   lambda q: f"https://www.youtube.com/results?search_query={_encode_q(q)}",
+    "www.youtube.com": lambda q: f"https://www.youtube.com/results?search_query={_encode_q(q)}",
+    "pinterest.com": lambda q: f"https://www.pinterest.com/search/pins/?q={_encode_q(q)}",
+    "www.pinterest.com": lambda q: f"https://www.pinterest.com/search/pins/?q={_encode_q(q)}",
+    "reddit.com":    lambda q: f"https://www.reddit.com/search/?q={_encode_q(q)}",
+    "github.com":    lambda q: f"https://github.com/search?q={_encode_q(q)}",
+    "amazon.com":    lambda q: f"https://www.amazon.com/s?k={_encode_q(q)}",
+    "google.com":    lambda q: f"https://www.google.com/search?q={_encode_q(q)}",
+    "www.google.com":lambda q: f"https://www.google.com/search?q={_encode_q(q)}",
+}
+
+def _host_of(url: str) -> str:
+    m = re.match(r"^https?://([^/]+)/?", url)
+    return m.group(1).lower() if m else ""
+
+def prefer_site_search_over_cmdf(plan: dict) -> tuple[dict, bool]:
+    """
+    If plan opens a known site and then does Cmd+F + paste_text "<query>" (+ return),
+    rewrite to open the site's search URL directly. Returns (plan, changed?)
+    """
+    steps = plan.get("steps") or []
+    changed = False
+    i = 0
+    while i < len(steps):
+        s = steps[i]
+        if s.get("type") == "open" and isinstance(s.get("target"), str):
+            host = _host_of(s["target"])
+            if host in KNOWN_SITE_SEARCH:
+                j = i + 1
+                saw_cmdf = False
+                query = None
+                end_idx = None
+                if j < len(steps) and steps[j].get("type") == "keystroke" and (steps[j].get("keys") or "").lower() == "cmd+f":
+                    saw_cmdf = True
+                    j += 1
+                    if j < len(steps) and steps[j].get("type") == "sleep_ms":
+                        j += 1
+                    if j < len(steps) and steps[j].get("type") == "paste_text" and isinstance(steps[j].get("text"), str):
+                        query = steps[j]["text"]
+                        j += 1
+                        if j < len(steps) and steps[j].get("type") == "sleep_ms":
+                            j += 1
+                        if j < len(steps) and steps[j].get("type") == "keystroke" and (steps[j].get("keys") or "").lower() == "return":
+                            j += 1
+                        end_idx = j
+                if saw_cmdf and query:
+                    steps[i]["target"] = KNOWN_SITE_SEARCH[host](query)
+                    if end_idx is not None:
+                        del steps[i+1:end_idx]
+                    changed = True
+        i += 1
+    plan["steps"] = steps
+    return plan, changed
 
 # -------- endpoints --------
 @app.get("/")
@@ -406,6 +500,9 @@ def generate_script(payload: GenerateReq):
     # Always enforce 3s wait after web opens and prefer Cmd-F
     plan = ensure_web_load_delays(plan)
     plan = normalize_open_followup_to_cmdf(plan)
+
+    # Prefer native site search over Cmd-F when possible
+    plan, _ = prefer_site_search_over_cmdf(plan)
 
     if "hotkey" not in plan or "steps" not in plan:
         raise HTTPException(status_code=422, detail="Invalid plan returned")
@@ -465,6 +562,42 @@ def exec_text_transform(args: Dict[str, Any], clipboard: Optional[str]) -> str:
     )
     return (chat.choices[0].message.content or "").strip()
 
+def exec_text_compose(args: Dict[str, Any]) -> str:
+    instruction = (args.get("instruction") or "").strip()
+    tone = (args.get("tone") or "").strip()
+    fmt = (args.get("format") or "").strip()
+    length = (args.get("length") or "").strip()
+    lang = (args.get("lang") or "").strip()
+
+    if not instruction:
+        return ""
+
+    sys = "You write exactly what is asked, nothing extra."
+    user_lines = [instruction]
+    if tone:
+        user_lines.append(f"TONE: {tone}")
+    if fmt:
+        user_lines.append(f"FORMAT: {fmt}")
+    if length:
+        user_lines.append(f"LENGTH: {length}")
+    if lang:
+        user_lines.append(f"LANG: {lang}")
+    user = "\n".join(user_lines)
+
+    if client is None:
+        return instruction  # offline echo
+
+    chat = client.chat.completions.create(
+        model=os.getenv("OPENAI_MODEL_COMPOSE", os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")),
+        temperature=0.2,
+        max_tokens=800,
+        messages=[
+            {"role":"system","content": sys},
+            {"role":"user","content": user},
+        ],
+    )
+    return (chat.choices[0].message.content or "").strip()
+
 def _construct_search_url(site: str, query: str) -> Optional[str]:
     q = query.replace(" ", "%20")
     s = site.lower()
@@ -483,7 +616,6 @@ def exec_web_parse_find(args: Dict[str, Any]) -> str:
     if not url and not site:
         return ""
 
-    # If no URL but we have a site+query, construct a search URL
     if not url and site and query:
         candidate = _construct_search_url(site, query)
         if candidate:
@@ -492,20 +624,17 @@ def exec_web_parse_find(args: Dict[str, Any]) -> str:
     if not url:
         return ""
 
-    # Try Playwright (handles JS-heavy sites)
     if PLAYWRIGHT_OK:
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
                 page = browser.new_page()
                 page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                # crude scroll to load content
                 for _ in range(8):
                     page.mouse.wheel(0, 1200)
                     page.wait_for_timeout(400)
                 html = page.content()
                 browser.close()
-            # Very simple heuristic: find a link that contains any query term
             terms = [t.lower() for t in re.split(r"\s+|\bOR\b|\bor\b", query) if t]
             best = None
             if REQS_OK:
@@ -518,12 +647,10 @@ def exec_web_parse_find(args: Dict[str, Any]) -> str:
                             href = "https://twitter.com" + href
                         best = href
                         break
-            # Fallback: just return the search URL
             return best or url
         except Exception:
             pass
 
-    # Fallback: requests + BS4 for non-JS pages
     if REQS_OK:
         try:
             r = requests.get(url, timeout=12, headers={"User-Agent":"Mozilla/5.0"})
@@ -540,7 +667,6 @@ def exec_web_parse_find(args: Dict[str, Any]) -> str:
         except Exception:
             return url
 
-    # Last resort: return the deterministic URL so the plan can navigate
     return url
 
 def exec_shortcut_run(args: Dict[str, Any]) -> str:
@@ -555,6 +681,7 @@ def exec_shortcut_run(args: Dict[str, Any]) -> str:
 
 TOOLS_EXECUTORS = {
     "text.transform": lambda a, clip: exec_text_transform(a, clip),
+    "text.compose":   lambda a, clip: exec_text_compose(a),
     "web.parse_find": lambda a, clip: exec_web_parse_find(a),
     "shortcut.run":   lambda a, clip: exec_shortcut_run(a),
 }

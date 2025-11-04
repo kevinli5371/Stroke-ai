@@ -47,7 +47,7 @@ export default function App() {
   }
 
   return (
-    <main style={{ padding: 24 }}>
+    <main>
       <form onSubmit={handleSubmit}>
         <h1>Input a command</h1>
         <input
@@ -60,7 +60,7 @@ export default function App() {
         <button type="submit" disabled={loading || !command.trim()}>
           {loading ? "Working…" : "Submit"}
         </button>
-        {err && <p style={{ color: "crimson" }}>{err}</p>}
+        {err && <p>{err}</p>}
       </form>
     </main>
   );
