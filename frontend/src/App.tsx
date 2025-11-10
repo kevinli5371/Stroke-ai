@@ -1,5 +1,5 @@
 import "./App.css";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const API = "http://127.0.0.1:8000";
 
@@ -7,6 +7,27 @@ export default function App() {
   const [command, setCommand] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  //new: hotkeys state
+  const [hotkeys, setHotkeys] = useState<Array<{name: string; combo: string}>>([]);
+
+  async function fetchHotkeys() {
+    try {
+      const res = await fetch(`${API}/api/list-commands`);
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setHotkeys(data.commands);
+      } else {
+        throw new Error(data?.detail || data?.message || "Failed to fetch hotkeys");
+      }
+    } catch (e: any) {
+      setErr(e?.message || String(e));
+    }
+  }
+
+  useEffect(() => {
+    fetchHotkeys();
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -16,6 +37,13 @@ export default function App() {
 
     setLoading(true);
     try {
+      // 0) Check Hammerspoon running
+      const hsRes = await fetch(`${API}/api/hs-running`);
+      const hsData = await hsRes.json();
+      if (!hsData.running) {
+        throw new Error("Hammerspoon is not running. Please start Hammerspoon and try again.");
+      }
+
       // 1) Generate plan + runtime classification
       const genRes = await fetch(`${API}/api/generate-script`, {
         method: "POST",
@@ -37,6 +65,9 @@ export default function App() {
       });
       const applyData = await applyRes.json();
       if (!applyRes.ok) throw new Error(applyData?.detail || "Failed to apply plan");
+
+     // refresh the installed hotkeys list so the UI updates
+     await fetchHotkeys();
 
       alert(`Shortcut installed (${runtime}). Hotkey: ${applyData.combo}`);
     } catch (e: any) {
@@ -62,6 +93,21 @@ export default function App() {
         </button>
         {err && <p>{err}</p>}
       </form>
+      {/* display installed hotkeys*/}
+      <section>
+        <h2>Installed Hotkeys</h2>
+        {hotkeys.length === 0 ? (
+          <p>No hotkeys installed yet.</p>
+        ) : (
+          <ul>
+            {hotkeys.map((hk) => (
+              <li key={hk.combo}>
+                {hk.name} - {hk.combo}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </main>
   );
 }

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import zlib
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from dotenv import load_dotenv
@@ -130,215 +131,108 @@ class Step(BaseModel):
     ms: Optional[int] = None
 
 class Plan(BaseModel):
+    name: Optional[str] = None
     hotkey: Hotkey
     steps: List[Step]
     notes: Optional[str] = None
 
-# -------- Hammerspoon compile/write/reload --------
-from pathlib import Path as _Path
-HAM_FILE = _Path.home() / ".hammerspoon" / "agentic.lua"
-HS_CLI = os.getenv("HS_CLI", "hs")
+# -------- home endpoint --------
+@app.get("/")
+def home():
+    return {"status": "ok"}
 
-def _split_combo(combo: str) -> Tuple[List[str], str]:
-    parts = combo.lower().split("+")
-    key = parts.pop()
-    if key == "enter":
-        key = "return"
-    norm = {"option":"alt","alt":"alt","cmd":"cmd","command":"cmd","control":"ctrl","ctrl":"ctrl","shift":"shift"}
-    mods = [norm.get(p, p) for p in parts if p]
-    return mods, key
-
-def _lua_arr(xs: List[str]) -> str:
-    return "{" + ", ".join(f'"{x}"' for x in xs) + "}"
-
-def _lua_str(s: str) -> str:
-    return '"' + s.replace("\\", "\\\\").replace('"', '\"') + '"'
-
-def _lua_lit(v: Any) -> str:
-    if isinstance(v, dict):
-        parts = []
-        for k, val in v.items():
-            parts.append(f'{k} = {_lua_lit(val)}')
-        return '{ ' + ', '.join(parts) + ' }'
-    if isinstance(v, list):
-        return '{ ' + ', '.join(_lua_lit(x) for x in v) + ' }'
-    if isinstance(v, str):
-        return _lua_str(v)
-    if isinstance(v, bool):
-        return 'true' if v else 'false'
-    if v is None:
-        return 'nil'
-    return str(v)
-
-def _emit_step_lua(s: Step) -> str:
-    if s.type == "focus_app" and s.bundle:
-        return f'hs.application.launchOrFocusByBundleID({_lua_str(s.bundle)})'
-    if s.type == "keystroke" and s.keys:
-        mods, key = _split_combo(s.keys)
-        return f'hs.eventtap.keyStroke({_lua_arr(mods)}, "{key}", 0)'
-    if s.type == "open" and s.target:
-        tgt = s.target
-        # Use URL opener for http(s), fall back to /usr/bin/open for file paths
-        if isinstance(tgt, str) and (tgt.startswith("http://") or tgt.startswith("https://")):
-            return f"hs.urlevent.openURL({_lua_str(tgt)})"
-        return f"hs.execute('/usr/bin/open ' .. {_lua_str(tgt)}, true)"
-    if s.type == "paste_text" and s.text is not None:
-        return f'hs.pasteboard.setContents({_lua_str(s.text)}); hs.eventtap.keyStroke({{"cmd"}}, "v", 0)'
-    if s.type == "run_shortcut" and s.name:
-        return f"hs.execute('/usr/bin/shortcuts run ' .. {_lua_str(s.name)}, true)"
-    if s.type == "set_clipboard" and s.text is not None:
-        return f'hs.pasteboard.setContents({_lua_str(s.text)})'
-    if s.type == "paste_clipboard":
-        return 'hs.eventtap.keyStroke({"cmd"}, "v", 0)'
-    if s.type == "notify":
-        title = _lua_str(s.title or "Stroke.ai")
-        body = _lua_str(s.body or "")
-        return f'hs.notify.new({{title={title}, informativeText={body}}}):send()'
-    if s.type == "sleep_ms" and s.ms is not None:
-        return f'hs.timer.usleep({s.ms} * 1000)'
-    if s.type == "run_tool" and s.name:
-        lua_base = f'{{ name = {_lua_str(s.name)}, args = {_lua_lit(s.args or {})} }}'
-        return (
-            'do '
-            'local clip = hs.pasteboard.getContents() or "" '
-            f'local base = {lua_base} '
-            'base["clipboard"] = clip '
-            'local url = "http://127.0.0.1:8000/api/run-tool" '
-            'local headers = { ["Content-Type"] = "application/json" } '
-            'local body = hs.json.encode(base) '
-            'local status, resp = hs.http.post(url, body, headers) '
-            'if status == 200 then '
-            '  local ok, parsed = pcall(hs.json.decode, resp) '
-            '  if ok and parsed and parsed.result then hs.pasteboard.setContents(parsed.result) end '
-            'else hs.alert.show("Tool HTTP "..tostring(status)) end '
-            'end'
-        )
-    return f'-- unsupported: {s.model_dump_json()}'
-
-def compile_lua_block(plan: Plan) -> str:
-    mods, key = _split_combo(plan.hotkey.combo)
-    gate = ""
-    if plan.hotkey.scope == "app" and plan.hotkey.appBundleId:
-        gate = f'if hs.application.frontmostApplication():bundleID() ~= {_lua_str(plan.hotkey.appBundleId)} then return end'
-    body = "\n  ".join(_emit_step_lua(s) for s in plan.steps)
-    return f"""
--- BEGIN GENERATED {plan.hotkey.combo}
-hs.hotkey.bind({_lua_arr(mods)}, "{key}", function()
-  {gate}
-  {body}
-end)
--- END GENERATED {plan.hotkey.combo}
-""".strip("\n")
-
-def upsert_block(block_id: str, block: str) -> None:
-    HAM_FILE.parent.mkdir(parents=True, exist_ok=True)
-    content = HAM_FILE.read_text(encoding="utf-8") if HAM_FILE.exists() else ""
-    pattern = re.compile(rf"-- BEGIN GENERATED {re.escape(block_id)}[\s\S]*?-- END GENERATED {re.escape(block_id)}", re.M)
-    if pattern.search(content):
-        content = pattern.sub(block, content)
-    else:
-        if content and not content.endswith("\n"):
-            content += "\n"
-        content += block + "\n"
-    HAM_FILE.write_text(content, encoding="utf-8")
-
-def reload_hammerspoon() -> None:
+# -------- hs-running endpoint --------
+@app.get("/api/hs-running")
+def hs_running():
     try:
-        subprocess.run([HS_CLI, "-c", "hs.reload()"], check=True, timeout=5)
+        res = subprocess.run(["pgrep", "-x", "Hammerspoon"], capture_output=True)
+        return {"running": res.returncode == 0}
     except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="Hammerspoon CLI not found. Set HS_CLI or install CLI.")
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=f"Hammerspoon reload failed: {e}")
+        # pgrep missing (unlikely on mac), fallback to false
+        return {"running": False}
 
-# -------- prompt (plan + runtime only) --------
+# -------- generate-script endpoint + helpers (grouped) --------
 SYSTEM_PROMPT_TEMPLATE = """
-You convert natural language into a deterministic desktop automation plan for macOS.
+Convert the user's natural language instruction into exactly one JSON object with two keys: "plan" and "runtime".
 
-Return ONLY one JSON object with this exact shape:
-
+Shape:
 {
   "plan": {
-    "hotkey": { "combo": "string like 'alt+shift+m'", "scope": "global|app", "appBundleId": "optional string" },
-    "steps": [
-      { "type": "focus_app", "bundle": "bundle id" } |
-      { "type": "open", "target": "url or absolute path" } |
-      { "type": "keystroke", "keys": "cmd+shift+a" } |
-      { "type": "paste_text", "text": "string" } |
-      { "type": "set_clipboard", "text": "string" } |
-      { "type": "paste_clipboard" } |
-      { "type": "run_shortcut", "name": "Apple Shortcuts name" } |
-      { "type": "sleep_ms", "ms": integer milliseconds } |
-      { "type": "notify", "title": "string", "body": "string" } |
-      { "type": "run_tool", "name": "tool name", "args": { "k": "v" } }
-    ],
+    "name": "short human-friendly name for this shortcut",
+    "hotkey": { "combo": "alt+shift+x" | "cmd+alt+x" | "", "scope":"global|app", "appBundleId":"optional" },
+    "steps": [ ... ],
     "notes": "optional string"
   },
   "runtime": "static" | "dynamic"
 }
 
-Global rules (strict)
-- Output MUST be valid JSON only (no prose). Exactly one object with "plan" and "runtime".
-- Normalize modifiers to: cmd, ctrl, alt, shift (lowercase). Use "return" (not "enter").
-- If no hotkey is provided, default to "alt+shift+k".
-- Insert short waits when UI changes precede typing/pasting: { "type":"sleep_ms","ms":120 }.
-- Web load wait: after any { "type":"open", "target": "http(s)://..." } insert { "type":"sleep_ms","ms":3000 } before any action on that page.
-- Do only what the user asked. Do not add extra steps or tools.
-  - Do not change text, rewrite, summarize, translate, or “polish” unless the user explicitly asks for that.
-  - Do not copy or paste unless needed for the requested action.
-  - Do not emit run_tool unless the user explicitly requests the capability or it is truly unavoidable to satisfy the request.
-- Keystrokes: Prefer modifier shortcuts (cmd+f, cmd+l, pagedown, arrows, return). Avoid unmodified single-character keys unless explicitly requested or absolutely necessary.
-- Never type characters one-by-one to form words or URLs. If you must enter text, use a single { "type":"paste_text", "text":"<full string>" } then { "type":"keystroke","keys":"return" }.
-- Never invent shell commands or step types not listed.
+Allowed step types and exact fields:
+- focus_app: { "type":"focus_app", "bundle":"com.example.App" }         # preferred for app-specific actions
+- open:      { "type":"open", "target":"https://... | /absolute/path | bundle:com.example.App | app:Exact App Name" }
+- keystroke: { "type":"keystroke", "keys":"cmd+f | cmd+l | ctrl+alt+x | return | arrows" }
+- paste_text:{ "type":"paste_text", "text":"full string to paste" }
+- set_clipboard:{ "type":"set_clipboard", "text":"string" }
+- paste_clipboard:{ "type":"paste_clipboard" }
+- run_shortcut:{ "type":"run_shortcut", "name":"Apple Shortcuts name" }
+- sleep_ms:  { "type":"sleep_ms", "ms": 120 | 3000 | integer }
+- notify:    { "type":"notify", "title":"...", "body":"..." }
+- run_tool:  { "type":"run_tool", "name":"text.transform|text.compose|web.parse_find|shortcut.run", "args":{...} }
 
-Tool manifest
-Use ONLY these with { "type": "run_tool" }:
-<TOOL_MANIFEST_JSON>
+Deterministic rules and normalization (must follow):
+- Output ONLY valid JSON (no explanatory text, no markdown).
+- Normalize modifier keys to: cmd, ctrl, alt, shift (lowercase). Use "return" not "enter".
+- Hotkey combo (if present) must be a normalized lowercase string like "alt+shift+x". If you cannot determine a reasonable hotkey, omit it (empty string or omit hotkey) — the backend may assign one.
+- For opening or interacting with applications:
+    - ALWAYS include a focus_app step with a macOS bundle id before any keystrokes, pastes, or app-specific UI navigation that target that app. Example:
+        { "type":"focus_app", "bundle":"com.google.Chrome" },
+        { "type":"sleep_ms","ms":120},
+        { "type":"keystroke","keys":"cmd+l" }
+    - If you cannot supply a bundle id, use open.target with a prefix to be explicit:
+        - bundle:com.example.App  (preferred if you know bundle id)
+        - app:Exact App Name      (exact displayed app name; backend will use open -a or launch)
+      Example for Visual Studio Code:
+        - bundle id: "com.microsoft.VSCode" → { "type":"focus_app", "bundle":"com.microsoft.VSCode" }
+        - app name:  "app:Visual Studio Code" → { "type":"open", "target":"app:Visual Studio Code" }
+    - Do NOT emit ambiguous plain app names without a prefix. Do NOT assume an app is already focused.
+    - All app-targeting sequences must begin with focus_app or an explicit open with a bundle/app prefix.
+- For websites use open.target with a full URL "https://..." (backend will add a 3000ms sleep before next action).
+- NEVER emit ambiguous plain app names without a prefix.
+- When you need to find something on a website (search / locate link / find latest post), use run_tool "web.parse_find" with args { "site":"youtube|twitter|github|..." } or { "url":"https://...", "query":"..." }. Do NOT simulate scrolling & extraction with fragile keystrokes when web.parse_find is available.
+- After any http(s) open, insert { "type":"sleep_ms", "ms":3000 } before interacting with the page.
+- For selected-text transforms (rewrite/polish/translate) emit the exact sequence:
+    [
+      { "type":"keystroke","keys":"cmd+c" },
+      { "type":"sleep_ms","ms":120 },
+      { "type":"run_tool","name":"text.transform","args":{ "operation":"rewrite|summarize|translate", ... } },
+      { "type":"sleep_ms","ms":120 },
+      { "type":"paste_clipboard" }
+    ]
+- For composition (generate new text) emit:
+    [
+      { "type":"run_tool","name":"text.compose","args":{ "instruction":"...", ... } },
+      { "type":"sleep_ms","ms":120 },
+      { "type":"paste_clipboard" }
+    ]
+  and set "runtime":"dynamic".
+- Set "runtime":"dynamic" whenever steps include any run_tool call or any action that depends on live web content or model outputs. Otherwise use "static".
+- Use paste_text for entering any multi-word text; do not emit many single-character keystroke steps to type words.
+- Do not invent new step types. Only use the allowed types above.
+- Keep names short (<= 60 chars) and free of newlines; if no name provided, the backend will synthesize one from the user's command.
 
-Site search (preferred) vs Cmd-F (fallback)
-- If the site has a deterministic search feature, use it FIRST by navigating to a search URL or focusing the site’s search field. Examples:
-  - Pinterest: https://www.pinterest.com/search/pins/?q=<encoded>
-  - Twitter/X: https://twitter.com/search?q=<encoded>&src=typed_query&f=live
-  - YouTube:   https://www.youtube.com/results?search_query=<encoded>
-  - Reddit:    https://www.reddit.com/search/?q=<encoded>
-  - GitHub:    https://github.com/search?q=<encoded>
-  - Amazon:    https://www.amazon.com/s?k=<encoded>
-  - Google:    https://www.google.com/search?q=<encoded>
-- ONLY use Cmd+F when the user explicitly asks to “find on this page” or when no reliable site search exists.
-- After any site search navigation (http/https open) insert { "type":"sleep_ms","ms":3000 } before typing or further actions.
+Site-search examples (use these patterns when constructing search URLs inside run_tool/web.parse_find):
+- Twitter/X:   https://twitter.com/search?q={encoded}&src=typed_query&f=live
+- YouTube:     https://www.youtube.com/results?search_query={encoded}
+- Google:      https://www.google.com/search?q={encoded}
+- Pinterest:   https://www.pinterest.com/search/pins/?q={encoded}
 
-Composition (generate new text — always DYNAMIC)
-- When the user asks to write/create/generate/draft/compose something (no source text), set "runtime":"dynamic" and use:
-  [
-    { "type":"run_tool","name":"text.compose","args":{ "instruction":"<what to write>", "tone":"<if relevant>", "format":"<if relevant>", "length":"short|medium|long", "lang":"<if relevant>" } },
-    { "type":"sleep_ms","ms":120 },
-    { "type":"paste_clipboard" }
-  ]
-- Do NOT open websites for composition unless the user asked to open a specific page to paste into; otherwise paste into the current app.
-
-Selected-text transforms (dynamic)
-[
-  { "type":"keystroke","keys":"cmd+c" },
-  { "type":"sleep_ms","ms":120 },
-  { "type":"run_tool","name":"text.transform","args":{ "operation":"rewrite","tone":"professional" } },
-  { "type":"sleep_ms","ms":120 },
-  { "type":"paste_clipboard" }
-]
-
-Web parsing (dynamic) — when the user says "find/scroll until you see ...":
-- Use { "type":"run_tool","name":"web.parse_find","args":{ "url":"<if known>", "site":"<if not>", "query":"<what to look for>" } }
-- After it returns a URL, navigate only if the user asked to open that result.
-
-Classification
-- "static" when steps are fully deterministic (direct URLs, fixed keystrokes, no tools that need live context).
-- "dynamic" when using run_tool (text.transform, text.compose, web.parse_find) or when live context is required.
-
-Output only the JSON object with "plan" and "runtime". No explanations.
+Final requirement:
+- Emit a single JSON object exactly matching the schema above and nothing else.
 """.strip()
 
 def build_system_prompt() -> str:
     return SYSTEM_PROMPT_TEMPLATE.replace("<TOOL_MANIFEST_JSON>", json.dumps(TOOL_MANIFEST, ensure_ascii=False))
 
-# -------- auto-repairs --------
+# --- auto-repairs ---
 def ensure_dynamic_runtime_hooks(plan: Dict[str, Any]) -> Dict[str, Any]:
     # Only inject for dynamic selected-text rewrite if the model forgot
     steps = plan.get("steps") or []
@@ -410,7 +304,7 @@ KNOWN_SITE_SEARCH = {
 def _host_of(url: str) -> str:
     m = re.match(r"^https?://([^/]+)/?", url)
     return m.group(1).lower() if m else ""
-
+    
 def prefer_site_search_over_cmdf(plan: dict) -> tuple[dict, bool]:
     """
     If plan opens a known site and then does Cmd+F + paste_text "<query>" (+ return),
@@ -450,10 +344,32 @@ def prefer_site_search_over_cmdf(plan: dict) -> tuple[dict, bool]:
     plan["steps"] = steps
     return plan, changed
 
-# -------- endpoints --------
-@app.get("/")
-def home():
-    return {"status": "ok"}
+# --- new helper: find used alt+shift letters in agentic.lua ---
+def _used_alt_shift_letters() -> set:
+    try:
+        p = _Path.home() / ".hammerspoon" / "agentic.lua"
+        if not p.exists():
+            return set()
+        txt = p.read_text(encoding="utf-8")
+        # match lines like: -- BEGIN GENERATED alt+shift+k
+        found = re.findall(r"--\s*BEGIN\s+GENERATED\s+alt\+shift\+([a-z])", txt, flags=re.IGNORECASE)
+        return {c.lower() for c in found}
+    except Exception:
+        return set()
+
+def _choose_alt_shift_letter(seed: str) -> str:
+    """Pick a deterministic starting letter from seed, then choose the first unused a-z.
+       Raises HTTPException if no letters remain."""
+    s = (seed or "")[:1024]
+    start_idx = zlib.crc32(s.encode("utf-8")) % 26
+    used = _used_alt_shift_letters()
+    for offset in range(26):
+        idx = (start_idx + offset) % 26
+        letter = chr(ord("a") + idx)
+        if letter not in used:
+            return f"alt+shift+{letter}"
+    # all letters used
+    raise HTTPException(status_code=409, detail="All alt+shift+<letter> shortcuts are in use; please free one.")
 
 @app.post("/api/generate-script")
 def generate_script(payload: GenerateReq):
@@ -464,7 +380,7 @@ def generate_script(payload: GenerateReq):
     if client is None:
         dummy = {
             "plan": {
-                "hotkey": {"combo": "alt+shift+k", "scope": "global"},
+                "hotkey": {"combo": _choose_alt_shift_letter(command), "scope": "global"},
                 "steps": [{"type": "notify", "title": "Planner offline", "body": command}],
                 "notes": "offline"
             },
@@ -494,8 +410,35 @@ def generate_script(payload: GenerateReq):
         plan = obj
         runtime = "dynamic"
 
-    if runtime == "dynamic":
+    # Ensure plan has a short human-friendly name
+    try:
+        if not plan.get("name"):
+            # make short sanitized name from the command
+            nm = command.strip()[:60]
+            nm = re.sub(r"\s+", " ", nm)
+            plan["name"] = nm or plan.get("hotkey", {}).get("combo", "")
+    except Exception:
+        plan["name"] = plan.get("hotkey", {}).get("combo", "")
+
+    # Ensure we always have a hotkey; auto-assign alt+shift+<letter> when missing/empty
+    try:
+        if not isinstance(plan, dict):
+            plan = dict(plan)
+    except Exception:
+        plan = {"hotkey": {"combo": _choose_alt_shift_letter(command), "scope": "global"}, "steps": []}
+
+    hk = plan.get("hotkey") or {}
+    if not hk.get("combo"):
+        plan["hotkey"] = {"combo": _choose_alt_shift_letter(command), "scope": "global"}
+
+    # Always attempt to inject dynamic runtime hooks (selected-text transforms) if the model forgot.
+    try:
         plan = ensure_dynamic_runtime_hooks(plan)
+    except Exception:
+        pass
+    # If any run_tool exists after injection, ensure runtime is dynamic
+    if any((s.get("type") == "run_tool") for s in (plan.get("steps") or [])):
+        runtime = "dynamic"
 
     # Always enforce 3s wait after web opens and prefer Cmd-F
     plan = ensure_web_load_delays(plan)
@@ -504,13 +447,154 @@ def generate_script(payload: GenerateReq):
     # Prefer native site search over Cmd-F when possible
     plan, _ = prefer_site_search_over_cmdf(plan)
 
+    # auto-repair: ensure browser keystrokes have the browser focused first
+    try:
+        plan = ensure_focus_for_browser_keystrokes(plan)
+    except Exception:
+        pass
+
     if "hotkey" not in plan or "steps" not in plan:
         raise HTTPException(status_code=422, detail="Invalid plan returned")
 
     return {"status": "success", "plan": plan, "runtime": runtime}
 
+# -------- apply-plan endpoint + hammerspoon helpers (grouped) --------
+from pathlib import Path as _Path
+HAM_FILE = _Path.home() / ".hammerspoon" / "agentic.lua"
+HS_CLI = os.getenv("HS_CLI", "hs")
+
+def _split_combo(combo: str) -> Tuple[List[str], str]:
+    parts = combo.lower().split("+")
+    key = parts.pop()
+    if key == "enter":
+        key = "return"
+    norm = {"option":"alt","alt":"alt","cmd":"cmd","command":"cmd","control":"ctrl","ctrl":"ctrl","shift":"shift"}
+    mods = [norm.get(p, p) for p in parts if p]
+    return mods, key
+
+def _lua_arr(xs: List[str]) -> str:
+    return "{" + ", ".join(f'"{x}"' for x in xs) + "}"
+
+def _lua_str(s: str) -> str:
+    return '"' + s.replace("\\", "\\\\").replace('"', '\"') + '"'
+
+def _lua_lit(v: Any) -> str:
+    if isinstance(v, dict):
+        parts = []
+        for k, val in v.items():
+            parts.append(f'{k} = {_lua_lit(val)}')
+        return '{ ' + ', '.join(parts) + ' }'
+    if isinstance(v, list):
+        return '{ ' + ', '.join(_lua_lit(x) for x in v) + ' }'
+    if isinstance(v, str):
+        return _lua_str(v)
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
+    if v is None:
+        return 'nil'
+    return str(v)
+
+def _emit_step_lua(s: Step) -> str:
+    if s.type == "focus_app" and s.bundle:
+        return f'hs.application.launchOrFocusByBundleID({_lua_str(s.bundle)})'
+    if s.type == "keystroke" and s.keys:
+        mods, key = _split_combo(s.keys)
+        return f'hs.eventtap.keyStroke({_lua_arr(mods)}, "{key}", 0)'
+    if s.type == "open" and s.target:
+        tgt = s.target
+        # URL -> open in browser
+        if isinstance(tgt, str) and (tgt.startswith("http://") or tgt.startswith("https://")):
+            return f"hs.urlevent.openURL({_lua_str(tgt)})"
+        # absolute path or .app bundle path -> open path
+        if isinstance(tgt, str) and (tgt.startswith("/") or "/" in tgt or tgt.endswith(".app")):
+            return f"hs.execute('/usr/bin/open ' .. {_lua_str(tgt)}, true)"
+        # bundle id like com.google.Chrome -> use launchOrFocusByBundleID
+        if isinstance(tgt, str) and re.match(r'^[a-zA-Z0-9]+(\.[a-zA-Z0-9_]+)+$', tgt):
+            return f'hs.application.launchOrFocusByBundleID({_lua_str(tgt)})'
+        # otherwise treat as application name -> use open -a with quoting
+        return f"hs.execute('/usr/bin/open -a ' .. {_lua_str(tgt)}, true)"
+    if s.type == "paste_text" and s.text is not None:
+        return f'hs.pasteboard.setContents({_lua_str(s.text)}); hs.eventtap.keyStroke({{"cmd"}}, "v", 0)'
+    if s.type == "run_shortcut" and s.name:
+        return f"hs.execute('/usr/bin/shortcuts run ' .. {_lua_str(s.name)}, true)"
+    if s.type == "set_clipboard" and s.text is not None:
+        return f'hs.pasteboard.setContents({_lua_str(s.text)})'
+    if s.type == "paste_clipboard":
+        return 'hs.eventtap.keyStroke({"cmd"}, "v", 0)'
+    if s.type == "notify":
+        title = _lua_str(s.title or "Stroke.ai")
+        body = _lua_str(s.body or "")
+        return f'hs.notify.new({{title={title}, informativeText={body}}}):send()'
+    if s.type == "sleep_ms" and s.ms is not None:
+        return f'hs.timer.usleep({s.ms} * 1000)'
+    if s.type == "run_tool" and s.name:
+        lua_base = f'{{ name = {_lua_str(s.name)}, args = {_lua_lit(s.args or {})} }}'
+        return (
+            'do '
+            'local clip = hs.pasteboard.getContents() or "" '
+            f'local base = {lua_base} '
+            'base["clipboard"] = clip '
+            'local url = "http://127.0.0.1:8000/api/run-tool" '
+            'local headers = { ["Content-Type"] = "application/json" } '
+            'local body = hs.json.encode(base) '
+            'local resp_body, status, resp_headers = hs.http.post(url, body, headers) '
+            'if status == 200 and resp_body then '
+            '  local ok, parsed = pcall(hs.json.decode, resp_body) '
+            '  if ok and parsed and parsed.result then hs.pasteboard.setContents(parsed.result) end '
+             'else hs.alert.show("Tool HTTP "..tostring(status)) end '
+             'end'
+        )
+    return f'-- unsupported: {s.model_dump_json()}'
+
+def compile_lua_block(plan: Plan) -> str:
+    mods, key = _split_combo(plan.hotkey.combo)
+    gate = ""
+    if plan.hotkey.scope == "app" and plan.hotkey.appBundleId:
+        gate = f'if hs.application.frontmostApplication():bundleID() ~= {_lua_str(plan.hotkey.appBundleId)} then return end'
+    body = "\n  ".join(_emit_step_lua(s) for s in plan.steps)
+    name_comment = f'-- NAME: {plan.name}' if getattr(plan, "name", None) else ""
+    return f"""
+-- BEGIN GENERATED {plan.hotkey.combo}
+{name_comment}
+hs.hotkey.bind({_lua_arr(mods)}, "{key}", function()
+  {gate}
+  {body}
+end)
+-- END GENERATED {plan.hotkey.combo}
+""".strip("\n")
+
+def upsert_block(block_id: str, block: str) -> None:
+    HAM_FILE.parent.mkdir(parents=True, exist_ok=True)
+    content = HAM_FILE.read_text(encoding="utf-8") if HAM_FILE.exists() else ""
+    pattern = re.compile(rf"-- BEGIN GENERATED {re.escape(block_id)}[\s\S]*?-- END GENERATED {re.escape(block_id)}", re.M)
+    if pattern.search(content):
+        content = pattern.sub(block, content)
+    else:
+        if content and not content.endswith("\n"):
+            content += "\n"
+        content += block + "\n"
+    HAM_FILE.write_text(content, encoding="utf-8")
+
+def reload_hammerspoon() -> None:
+    try:
+        subprocess.run([HS_CLI, "-c", "hs.reload()"], check=True, timeout=5)
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Hammerspoon CLI not found. Set HS_CLI or install CLI.")
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"Hammerspoon reload failed: {e}")
+
 @app.post("/api/apply-plan")
 def apply_plan(plan_payload: Dict[str, Any] = Body(...)):
+    # try to auto-insert focus steps on the payload before validation
+    try:
+        plan_payload = ensure_focus_for_browser_keystrokes(plan_payload)
+    except Exception:
+        pass
+    # ensure dynamic runtime hooks (selected-text transforms) are injected on apply as well
+    try:
+        plan_payload = ensure_dynamic_runtime_hooks(plan_payload)
+    except Exception:
+        pass
     try:
         plan = Plan(**plan_payload)
     except Exception as e:
@@ -521,7 +605,7 @@ def apply_plan(plan_payload: Dict[str, Any] = Body(...)):
     reload_hammerspoon()
     return {"status": "ok", "applied": True, "combo": plan.hotkey.combo}
 
-# -------- /api/run-tool (generic dispatch) --------
+# -------- run-tool endpoint + helpers (grouped) --------
 class RunToolReq(BaseModel):
     name: str
     args: Dict[str, Any] = {}
@@ -701,3 +785,85 @@ class RunToolReq(BaseModel):
     name: str
     args: Dict[str, Any] = {}
     clipboard: Optional[str] = None
+
+# ------- list commands endpoint --------
+@app.get("/api/list-commands")
+def list_commands():
+    p = _Path.home() / ".hammerspoon" / "agentic.lua"
+    commands = []
+    if p.exists():
+        content = p.read_text(encoding="utf-8")
+        # find each BEGIN..END block, capture combo and optional NAME comment
+        pattern = re.compile(
+            r"--\s*BEGIN\s+GENERATED\s+(alt\+shift\+[a-z])[^\n]*\n(?:\s*--\s*NAME:\s*(.+?)\s*\n)?[\s\S]*?--\s*END\s+GENERATED\s+\1",
+            re.I,
+        )
+        matches = pattern.findall(content)
+        # matches -> list of tuples (combo, name_or_empty)
+        commands = [{"combo": m[0].lower(), "name": (m[1].strip() if m[1] else "")} for m in matches]
+    return {"status": "success", "commands": commands}
+
+def _installed_browser_bundle() -> Optional[str]:
+    """Return a likely default browser bundle id by env override, installed apps, or running process."""
+    # 1) env override
+    env = os.getenv("DEFAULT_BROWSER_BUNDLE")
+    if env:
+        return env.strip()
+
+    # 2) common candidates (bundle id, human name)
+    candidates = [
+        ("com.google.Chrome", "Google Chrome"),
+        ("com.apple.Safari", "Safari"),
+        ("org.mozilla.firefox", "Firefox"),
+        ("com.microsoft.edgemac", "Microsoft Edge"),
+    ]
+
+    # check typical install locations
+    try:
+        for bundle, name in candidates:
+            for base in ("/Applications", str(_Path.home() / "Applications")):
+                if _Path(base).joinpath(f"{name}.app").exists():
+                    return bundle
+    except Exception:
+        pass
+
+    # 3) fallback: check running processes by name (pgrep)
+    try:
+        for bundle, name in candidates:
+            res = subprocess.run(["pgrep", "-x", name], capture_output=True)
+            if res.returncode == 0:
+                return bundle
+    except Exception:
+        pass
+
+    return None
+
+def ensure_focus_for_browser_keystrokes(plan: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    If the plan contains a browser-style keystroke (e.g. cmd+t, cmd+l, cmd+w)
+    and there is no prior focus_app/open step, insert a focus_app for the
+    detected system browser + small sleep before the first such keystroke.
+    """
+    steps: List[Dict[str, Any]] = plan.get("steps") or []
+
+    # If the plan already targets an app explicitly or opens a URL, do nothing
+    if any(s.get("type") == "focus_app" for s in steps):
+        return plan
+    for s in steps:
+        if s.get("type") == "open" and isinstance(s.get("target"), str) and (s["target"].startswith("http://") or s["target"].startswith("https://")):
+            return plan
+
+    browser_targets = {"cmd+t", "cmd+shift+t", "cmd+w", "cmd+shift+w", "cmd+l", "cmd+f"}
+    for idx, s in enumerate(steps):
+        if s.get("type") == "keystroke" and isinstance(s.get("keys"), str):
+            k = s["keys"].strip().lower()
+            if k in browser_targets:
+                bundle = _installed_browser_bundle()
+                insert_at = max(0, idx)
+                focus_step = {"type": "focus_app", "bundle": bundle} if bundle else {"type": "open", "target": "app:Google Chrome"}
+                # insert focus then small sleep before the keystroke
+                steps.insert(insert_at, {"type": "sleep_ms", "ms": 120})
+                steps.insert(insert_at, focus_step)
+                plan["steps"] = steps
+                return plan
+    return plan
