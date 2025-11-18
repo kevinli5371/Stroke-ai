@@ -13,7 +13,7 @@ export default function App() {
 
   async function fetchHotkeys() {
     try {
-      const res = await fetch(`${API}/api/list-commands`);
+      const res = await fetch(`${API}/api/list-hotkeys`);
       const data = await res.json();
       if (res.ok && data.status === "success") {
         setHotkeys(data.commands);
@@ -45,14 +45,14 @@ export default function App() {
       }
 
       // 1) Generate plan + runtime classification
-      const genRes = await fetch(`${API}/api/generate-script`, {
+      const genRes = await fetch(`${API}/api/generate-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command: trimmed }),
       });
       const genData = await genRes.json();
-      if (!genRes.ok || genData.status !== "success" || !genData.plan) {
-        throw new Error(genData?.detail || genData?.message || "Failed to generate plan");
+      if (genData.status !== "success") {
+        throw new Error("Failed to generate plan");
       }
       const plan = genData.plan;
       const runtime = genData.runtime;
@@ -71,7 +71,7 @@ export default function App() {
 
       alert(`Shortcut installed (${runtime}). Hotkey: ${applyData.combo}`);
     } catch (e: any) {
-      setErr(e?.message || String(e));
+      setErr(e.message || String(e));
     } finally {
       setLoading(false);
     }
