@@ -112,7 +112,7 @@ If the user says:
 You should produce Lua similar to:
 
     -- Hotkey: Cmd + Alt + Y -> open Twitter search for "yc hiring"
-    hs.hotkey.bind({ "cmd", "alt" }, "Y", function()
+    hs.hotkey.bind({"cmd", "alt"}, "Y", function()
         local query = "yc hiring"
         local encodedQuery = hs.http.encodeForQuery(query)
         local url = "https://twitter.com/search?q=" .. encodedQuery .. "&src=typed_query"
