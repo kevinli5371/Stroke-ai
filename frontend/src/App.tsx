@@ -44,7 +44,7 @@ export default function App() {
         throw new Error("Hammerspoon is not running. Please start Hammerspoon and try again.");
       }
 
-      // 1) Generate plan + runtime classification
+      // 1) Generate plan
       const genRes = await fetch(`${API}/api/generate-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -55,21 +55,12 @@ export default function App() {
         throw new Error("Failed to generate plan");
       }
       const plan = genData.plan;
-      const runtime = genData.runtime;
-
-      // 2) Apply plan
-      const applyRes = await fetch(`${API}/api/apply-plan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(plan),
-      });
-      const applyData = await applyRes.json();
-      if (!applyRes.ok) throw new Error(applyData?.detail || "Failed to apply plan");
+      console.error(plan);
 
      // refresh the installed hotkeys list so the UI updates
      await fetchHotkeys();
 
-      alert(`Shortcut installed (${runtime}). Hotkey: ${applyData.combo}`);
+      alert(`Shortcut installed.`);
     } catch (e: any) {
       setErr(e.message || String(e));
     } finally {
@@ -102,7 +93,7 @@ export default function App() {
           <ul>
             {hotkeys.map((hk) => (
               <li key={hk.combo}>
-                {hk.name} - {hk.combo}
+                {hk.combo} - {hk.name}
               </li>
             ))}
           </ul>
