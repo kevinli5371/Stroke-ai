@@ -146,12 +146,38 @@ def tool_llm_transform_clipboard(payload: ToolInput) -> ToolResult:
     preview = transformed_text[:100] + ("..." if len(transformed_text) > 100 else "")
     return {"success": True, "text": f"Clipboard transformed: {preview}"}
 
+def tool_append_to_clipboard(payload: ToolInput) -> ToolResult:
+    # You can call this field "suffix" or reuse "text"
+    suffix = payload.get("text")
+    if not suffix:
+        return {
+            "success": False,
+            "text": "append_to_clipboard: missing 'text' in payload",
+        }
+
+    current = read_clipboard_text()
+    current = current.rstrip("\n")
+
+    if current:
+        new_text = current + "\n\n" + suffix
+    else:
+        new_text = suffix
+
+    write_clipboard_text(new_text)
+
+    preview = new_text[:120] + ("..." if len(new_text) > 120 else "")
+    return {
+        "success": True,
+        "text": f"Appended to clipboard. Preview: {preview}",
+    }
+
 TOOLS["copy_selection"] = tool_copy_selection
 TOOLS["paste_clipboard"] = tool_paste_clipboard
 TOOLS["open_url"] = tool_open_url
 TOOLS["debug_log"] = tool_debug_log
 TOOLS["wait"] = tool_wait
 TOOLS["llm_transform_clipboard"] = tool_llm_transform_clipboard
+TOOLS["append_to_clipboard"] = tool_append_to_clipboard
 
 # -------- system prompt --------
 WORKFLOW_PLANNER_PROMPT = """
@@ -219,9 +245,20 @@ Available tools:
    - Reads the current clipboard text, sends it to an LLM with an instruction,
      and replaces the clipboard with the transformed text.
    - input fields:
-     - "instruction" or "text": the instruction for how to transform the clipboard text
-       (e.g., "summarize in 3 bullets", "rewrite as a polite email", etc.).
-   - ONLY USE THIS TOOL IF THE COMMAND INVOLVES MODIFYING OR TRANSFORMING TEXT.
+     - "instruction": how to transform the text (e.g. "summarize in 3 bullets").
+   - IMPORTANT:
+     - ONLY use this tool when the user EXPLICITLY asks to change, rewrite,
+       summarize, translate, shorten, expand, or otherwise modify the text itself.
+     - If the user only wants to MOVE text (e.g. "send selection to ChatGPT",
+       "paste this into X", "open site and paste my text", "search this on the web"),
+       DO NOT use this tool. In those cases, just use copy_selection, wait,
+       open_url, paste_clipboard, etc.
+
+7) "append_to_clipboard"
+   - Reads the current clipboard text and appends some extra text to it, then writes the result back to the clipboard.
+   - input fields:
+     - "text": the text to append.
+   - Use this when the user wants to ADD a simple instruction like "Explain this" at the end of their message, without changing the original content.
 
 Rules:
 
@@ -231,8 +268,36 @@ Rules:
   - For example the command is about Twitter / X, use:
       { "mods": ["cmd", "alt"], "key": "T" }
   - For other cases choose a reasonable { "cmd", "alt" } + letter.
-
+- Prefer the simplest sequence of tools that accomplishes the user’s request.
+- Never add llm_transform_clipboard unless there is an explicit transformation
+  request in the user’s command.
 - ALWAYS respond with ONLY the JSON object. No backticks, no markdown, no explanation.
+
+Example:
+
+User: "When I press this, send my selected text to ChatGPT and explain it."
+
+You MUST output something like:
+
+{
+  "name": "Send selection to ChatGPT and ask to explain",
+  "hotkey": { "mods": ["cmd", "alt"], "key": "G" },
+  "steps": [
+    { "tool": "copy_selection", "input": {} },
+    { "tool": "wait", "input": { "seconds": 0.4 } },
+    {
+      "tool": "append_to_clipboard",
+      "input": { "suffix": "Explain this." }
+    },
+    {
+      "tool": "open_url",
+      "input": { "url": "https://chatgpt.com" }
+    },
+    { "tool": "wait", "input": { "seconds": 2.0 } },
+    { "tool": "paste_clipboard", "input": {} }
+  ]
+}
+
 """
 
 # -------- helper functions --------
@@ -250,6 +315,7 @@ def plan_workflow_from_command(command: str) -> Workflow:
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
         response_format={"type": "json_object"},
+
         messages=[
             {"role": "system", "content": WORKFLOW_PLANNER_PROMPT},
             {"role": "user", "content": command},
@@ -291,6 +357,19 @@ def plan_workflow_from_command(command: str) -> Workflow:
     save_workflows()
 
     return workflow
+
+def read_clipboard_text() -> str:
+    try:
+        result = subprocess.run(["pbpaste"], capture_output=True, text=True, check=True)
+        return result.stdout
+    except Exception as e:
+        return ""
+
+def write_clipboard_text(text: str) -> None:
+    try:
+        subprocess.run(["pbcopy"], input=text, text=True, check=True)
+    except Exception as e:
+        print("Failed to write to clipboard:", e)
 
 def build_hammerspoon_lua(workflows: Dict[str, Workflow]) -> str:
     lines: list[str] = []
