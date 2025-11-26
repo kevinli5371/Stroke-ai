@@ -4,68 +4,92 @@ import { useState, useEffect } from "react";
 const API = "http://127.0.0.1:8000";
 
 export default function App() {
-  const [command, setCommand] = useState("");
+  const [command, setCommand] = useState("");      // your natural language command
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const [hotkeys, setHotkeys] = useState<Array<{name: string; combo: string}>>([]);
 
-  async function fetchHotkeys() {
+  const [workflows, setWorkflows] = useState<any[]>([]);
+  const [workflowsLoading, setWorkflowsLoading] = useState(false);
+  const [workflowsError, setWorkflowsError] = useState<string | null>(null);
+
+  async function fetchWorkflows() {
     try {
-      const res = await fetch(`${API}/api/list-hotkeys`);
+      setWorkflowsError(null);
+      setWorkflowsLoading(true);
+
+      const res = await fetch(`${API}/api/workflows`);
       const data = await res.json();
-      if (res.ok && data.status === "success") {
-        setHotkeys(data.commands);
-      } else {
-        throw new Error(data?.detail || data?.message || "Failed to fetch hotkeys");
+
+      if (!res.ok || data.status !== "success") {
+        throw new Error(data.message || "Failed to fetch workflows");
       }
+
+      setWorkflows(data.workflows || []);
     } catch (e: any) {
-      setErr(e?.message || String(e));
+      setWorkflowsError(e?.message || String(e));
+    } finally {
+      setWorkflowsLoading(false);
     }
   }
 
+
   useEffect(() => {
-    fetchHotkeys();
+    fetchWorkflows();
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null);
+    setError(null);
+
     const trimmed = command.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      setError("Please enter a command");
+      return;
+    }
 
-    setLoading(true);
     try {
-      // 0) Check Hammerspoon running
-      const hsRes = await fetch(`${API}/api/hs-running`);
-      const hsData = await hsRes.json();
-      if (!hsData.running) {
-        throw new Error("Hammerspoon is not running. Please start Hammerspoon and try again.");
-      }
-
-      // 1) Generate plan
-      const genRes = await fetch(`${API}/api/generate-plan`, {
+      setLoading(true);
+      const res = await fetch(`${API}/api/plan-workflow`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command: trimmed }),
       });
-      const genData = await genRes.json();
-      if (genData.status !== "success") {
-        throw new Error("Failed to generate plan");
+
+      const data = await res.json();
+
+      if (!res.ok || data.status !== "success") {
+        throw new Error(data.message || "Failed to plan workflow");
       }
-      const plan = genData.plan;
-      console.error(plan);
 
-     // refresh the installed hotkeys list so the UI updates
-     await fetchHotkeys();
-
-      alert(`Shortcut installed.`);
-    } catch (e: any) {
-      setErr(e.message || String(e));
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message || String(err));
     } finally {
       setLoading(false);
     }
   }
+
+  async function handleDelete(id: string) {
+    try {
+      setWorkflowsError(null);
+      setWorkflowsLoading(true);
+
+      const result = await fetch(`${API}/api/delete-workflow/${id}`, {
+        method: "DELETE",
+      });
+      const data = await result.json();
+      if (data.status !== "success") {
+        throw new Error(data.message || "Failed to delete workflow");
+      }
+      await fetchWorkflows();
+    } catch (e: any) {
+      setWorkflowsError(e?.message || String(e));
+    } finally {
+      setWorkflowsLoading(false);
+    }
+  }
+
 
   return (
     <main>
@@ -81,23 +105,109 @@ export default function App() {
         <button type="submit" disabled={loading || !command.trim()}>
           {loading ? "Working…" : "Submit"}
         </button>
-        {err && <p>{err}</p>}
+        {error && <p>{error}</p>}
       </form>
-      {/* display installed hotkeys*/}
-      <section>
-        <h2>Installed Hotkeys</h2>
-        {hotkeys.length === 0 ? (
-          <p>No hotkeys installed yet.</p>
-        ) : (
-          <ul>
-            {hotkeys.map((hk) => (
-              <li key={hk.combo}>
-                {hk.combo} - {hk.name}
+
+      <section
+        style={{
+          marginTop: "1.5rem",
+          padding: "1rem",
+          border: "1px solid #333",
+          borderRadius: "8px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "0.5rem",
+          }}
+        >
+          <h2 style={{ margin: 0 }}>Saved workflows</h2>
+          <button onClick={fetchWorkflows} disabled={workflowsLoading}>
+            {workflowsLoading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+
+        {workflowsError && (
+          <p style={{ color: "red", marginTop: "0.25rem" }}>{workflowsError}</p>
+        )}
+
+        {workflows.length === 0 && !workflowsLoading && (
+          <p style={{ opacity: 0.8 }}>No workflows yet. Create one from the form above.</p>
+        )}
+
+        {workflows.length > 0 && (
+          <ul style={{ listStyle: "none", padding: 0, marginTop: "0.5rem" }}>
+            {workflows.map((workflow) => (
+              <li
+                key={workflow.id}
+                style={{
+                  padding: "0.5rem 0.25rem",
+                  borderTop: "1px solid #444",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      {workflow.name || "(unnamed workflow)"}
+                    </div>
+
+                    {workflow.hotkey && (
+                      <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
+                        Hotkey:{" "}
+                        {workflow.hotkey.mods && workflow.hotkey.mods.length > 0
+                          ? workflow.hotkey.mods.join(" + ") + " + "
+                          : ""}
+                        {workflow.hotkey.key}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => handleDelete(workflow.id)}
+                    style={{
+                      fontSize: "0.8rem",
+                      padding: "0.15rem 0.5rem",
+                      borderRadius: "999px",
+                      border: "1px solid #666",
+                      background: "transparent",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+
+                {workflow.steps && workflow.steps.length > 0 && (
+                  <div style={{ marginTop: "0.25rem", fontSize: "0.9rem" }}>
+                    <span style={{ opacity: 0.8 }}>Steps:</span>{" "}
+                    {workflow.steps
+                      .map(
+                        (s: any) =>
+                          s.tool +
+                          (s.input && Object.keys(s.input).length > 0
+                            ? `(${JSON.stringify(s.input)})`
+                            : "")
+                      )
+                      .join(" → ")}
+                  </div>
+                )}
               </li>
             ))}
+
           </ul>
         )}
       </section>
+
     </main>
   );
 }
