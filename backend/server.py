@@ -271,6 +271,7 @@ Rules:
 - Prefer the simplest sequence of tools that accomplishes the user’s request.
 - Never add llm_transform_clipboard unless there is an explicit transformation
   request in the user’s command.
+- When using llm_transform_clipboard tool, make sure to use the paste_clipboard tool right after.
 - ALWAYS respond with ONLY the JSON object. No backticks, no markdown, no explanation.
 
 Example:
@@ -283,6 +284,7 @@ You MUST output something like:
   "name": "Send selection to ChatGPT and ask to explain",
   "hotkey": { "mods": ["cmd", "alt"], "key": "G" },
   "steps": [
+    { "tool": "debug_log", "input": { "text": "Starting workflow..." } },
     { "tool": "copy_selection", "input": {} },
     { "tool": "wait", "input": { "seconds": 0.4 } },
     {
