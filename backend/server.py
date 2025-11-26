@@ -30,7 +30,9 @@ OUTPUT FORMAT
 - Do NOT include any explanation, comments outside the code block (except for the header comment with the command + name), or extra text.
 - The outer message must look like:
 
+```lua
 -- your Lua code here
+```
 Inside the block you may use Lua comments (with --), but do not use any other language.
 
 BEHAVIOR:
@@ -125,6 +127,14 @@ RULES:
 - Prefer clear, readable code over being overly clever.
 """
 
+# -------- helper functions --------
+def extract_lua_code(plan: str) -> str | None:
+    m = re.search(r"```lua\s*(.*?)\s*```", plan, flags=re.S | re.I)
+    if m:
+        return m.group(1)
+    return None
+
+# -------- home endpoint --------
 @app.route('/')
 def home():
     return {"status": "ok", "message": "yo gurt"}
@@ -161,7 +171,7 @@ def list_hotkeys():
                 "combo": f"{matches[i][0].strip()} + {matches[i][1].strip()}",
                 "name": name_matches[i] if i < len(name_matches) else None
             })
-
+        
     return {"status": "success", "commands": commands}
 
 # -------- generate-plan endpoint --------
@@ -173,18 +183,30 @@ def generate_plan():
     # Process the request and generate a plan
     response = client.responses.create(
         model="gpt-4.1-mini",
-        input=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": command},
-        ],
+        input=SYSTEM_PROMPT + "\n\n" + command,
     )
     plan = response.output[0].content[0].text
-    print(plan)
 
-    # p = Path.home() / ".hammerspoon" / "agentic.lua"
-    # key = re.search(r"")
+    lua_code = extract_lua_code(plan)
 
-    return {"status": "success", "plan": plan}
+    p = Path.home() / ".hammerspoon" / "agentic.lua"
+    # ensure ~/.hammerspoon exists
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if lua_code:
+        # append script to file
+        with p.open("a", encoding="utf-8") as script_file:
+            if lua_code:
+                script_file.write("\n" + lua_code.strip() + "\n")
+
+    # reload hammerspoon config
+    try:
+        hs_cli = os.getenv("HS_CLI", "hs")  # allow overriding the CLI path
+        subprocess.run([hs_cli, "-c", "hs.reload()"], check=True, timeout=5)
+        return {"status": "success", "plan": plan}
+    # specify what type of exception to catch for future
+    except Exception as e:
+        print(e)
+        return {"status": "error", "message": f"Failed to reload Hammerspoon: {e}"}
 
 if __name__ == '__main__':
     # Run the server on port 8000

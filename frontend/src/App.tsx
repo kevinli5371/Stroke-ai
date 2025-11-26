@@ -8,7 +8,6 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  //new: hotkeys state
   const [hotkeys, setHotkeys] = useState<Array<{name: string; combo: string}>>([]);
 
   async function fetchHotkeys() {
