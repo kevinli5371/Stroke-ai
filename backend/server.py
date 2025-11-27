@@ -171,6 +171,177 @@ def tool_append_to_clipboard(payload: ToolInput) -> ToolResult:
         "text": f"Appended to clipboard. Preview: {preview}",
     }
 
+def tool_prepend_to_clipboard(payload: ToolInput) -> ToolResult:
+    prefix = payload.get("text")
+    if not prefix:
+        return {
+            "success": False,
+            "text": "prepend_to_clipboard: missing 'text' in payload",
+        }
+
+    current = read_clipboard_text()
+    current = current.lstrip("\n")
+
+    if current:
+        new_text = prefix + "\n\n" + current
+    else:
+        new_text = prefix
+
+    write_clipboard_text(new_text)
+
+    preview = new_text[:120] + ("..." if len(new_text) > 120 else "")
+    return {
+        "success": True,
+        "text": f"Prepended to clipboard. Preview: {preview}",
+    }
+
+def tool_replace_clipboard(payload: ToolInput) -> ToolResult:
+    new_text = payload.get("text")
+    if not new_text:
+        return {
+            "success": False,
+            "text": "replace_clipboard: missing 'text' in payload",
+        }
+
+    write_clipboard_text(new_text)
+    preview = new_text[:120] + ("..." if len(new_text) > 120 else "")
+    return {
+        "success": True,
+        "text": f"Replaced clipboard. Preview: {preview}",
+    }
+
+def tool_open_app(payload: ToolInput) -> ToolResult:
+    name = payload.get("name")
+    if not name:
+        return {
+            "success": False,
+            "text": "open_app: missing 'name' in payload",
+        }
+
+    script = f'tell application "{name}" to activate'
+
+    try:
+        run_osascript(script)
+        return {
+            "success": True,
+            "text": f"Activated app: {name}",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "text": f"open_app failed for '{name}': {e}",
+        }
+
+def tool_open_new_tab(payload: ToolInput) -> ToolResult:
+    script = 'tell application "System Events" to keystroke "t" using command down'
+
+    try:
+        run_osascript(script)
+        return {
+            "success": True,
+            "text": "Sent Cmd+T (open new tab)",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "text": f"open_new_tab failed: {e}",
+        }
+
+def tool_focus_url_bar(payload: ToolInput) -> ToolResult:
+    script = 'tell application "System Events" to keystroke "l" using command down'
+
+    try:
+        run_osascript(script)
+        return {
+            "success": True,
+            "text": "Sent Cmd+L (focus URL bar)",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "text": f"focus_url_bar failed: {e}",
+        }
+
+def tool_press_enter(payload: ToolInput) -> ToolResult:
+    script = 'tell application "System Events" to key code 36'
+
+    try:
+        run_osascript(script)
+        return {
+            "success": True,
+            "text": "Pressed Enter",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "text": f"press_enter failed: {e}",
+        }
+
+def tool_llm_generate_reply_to_clipboard(payload: ToolInput) -> ToolResult:
+    # 1) Read source text from clipboard
+    src = read_clipboard_text().strip()
+    if not src:
+        return {
+            "success": False,
+            "text": "llm_generate_reply_to_clipboard: clipboard is empty.",
+        }
+
+    # 2) Get instruction
+    instruction = payload.get("instruction") or payload.get("text")
+    if not instruction:
+        # Sensible default if none provided
+        instruction = "Write a brief, polite reply to this message."
+
+    # 3) Call the LLM to generate a reply
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4.1-mini",  # or your existing model
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a helpful assistant that drafts replies to emails "
+                        "and messages. Keep replies clear, concise, and on-topic."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Instruction: {instruction}\n\n"
+                        f"Original message:\n{src}"
+                    ),
+                },
+            ],
+        )
+        reply_text = (completion.choices[0].message.content or "").strip()
+    except Exception as e:
+        return {
+            "success": False,
+            "text": f"llm_generate_reply_to_clipboard: LLM call failed: {e}",
+        }
+
+    if not reply_text:
+        return {
+            "success": False,
+            "text": "llm_generate_reply_to_clipboard: LLM returned empty reply.",
+        }
+
+    # 4) Write reply back to clipboard
+    try:
+        write_clipboard_text(reply_text)
+    except Exception as e:
+        return {
+            "success": False,
+            "text": f"llm_generate_reply_to_clipboard: failed to write clipboard: {e}",
+        }
+
+    preview = reply_text[:160] + ("..." if len(reply_text) > 160 else "")
+    return {
+        "success": True,
+        "text": f"Generated reply and copied to clipboard. Preview: {preview}",
+    }
+
+# -------- register tools --------
 TOOLS["copy_selection"] = tool_copy_selection
 TOOLS["paste_clipboard"] = tool_paste_clipboard
 TOOLS["open_url"] = tool_open_url
@@ -178,6 +349,14 @@ TOOLS["debug_log"] = tool_debug_log
 TOOLS["wait"] = tool_wait
 TOOLS["llm_transform_clipboard"] = tool_llm_transform_clipboard
 TOOLS["append_to_clipboard"] = tool_append_to_clipboard
+TOOLS["prepend_to_clipboard"] = tool_prepend_to_clipboard
+TOOLS["replace_clipboard"] = tool_replace_clipboard
+TOOLS["open_app"] = tool_open_app
+TOOLS["open_new_tab"] = tool_open_new_tab
+TOOLS["focus_url_bar"] = tool_focus_url_bar
+TOOLS["press_enter"] = tool_press_enter
+TOOLS["llm_generate_reply_to_clipboard"] = tool_llm_generate_reply_to_clipboard
+
 
 # -------- system prompt --------
 WORKFLOW_PLANNER_PROMPT = """
@@ -252,29 +431,97 @@ Available tools:
      - If the user only wants to MOVE text (e.g. "send selection to ChatGPT",
        "paste this into X", "open site and paste my text", "search this on the web"),
        DO NOT use this tool. In those cases, just use copy_selection, wait,
-       open_url, paste_clipboard, etc.
+       open_app, open_url, paste_clipboard, etc.
 
 7) "append_to_clipboard"
    - Reads the current clipboard text and appends some extra text to it, then writes the result back to the clipboard.
    - input fields:
-     - "text": the text to append.
+     - "suffix" (preferred) or "text": the text to append.
    - Use this when the user wants to ADD a simple instruction like "Explain this" at the end of their message, without changing the original content.
+
+8) "open_app"
+   - Activates an application by name on macOS.
+   - input fields:
+     - "name": the application name, e.g. "Google Chrome", "Visual Studio Code", "Notion".
+   - Use this to bring a specific app to the foreground before sending keystrokes.
+
+9) "open_new_tab"
+   - Sends Cmd+T to the active app (usually a browser) to open a new tab.
+   - input fields: none.
+   - Assumes a browser or tabbed app is already focused.
+
+10) "focus_url_bar"
+    - Sends Cmd+L to focus the URL / location bar in the active browser window.
+    - input fields: none.
+    - Typically used before pasting a search query or URL.
+
+11) "press_enter"
+    - Presses the Enter/Return key in the active app.
+    - input fields: none.
+    - Use this to submit searches or messages after pasting text.
+
+12) "llm_generate_reply_to_clipboard"
+    - Reads the current clipboard text (for example, an email or message),
+      asks an LLM to draft a reply according to an instruction, and replaces the
+      clipboard contents with the generated reply.
+    - input fields:
+      - "instruction" (preferred) or "text":
+        a short description of how to reply, such as
+        "Write a short, polite reply"
+        or "Reply in a casual tone and ask two follow-up questions".
+    - Use this when the user explicitly asks to "draft a reply", "write a response",
+      "respond to this email/message", etc.
+    - After using this tool, you will typically use paste_clipboard to insert
+      the reply back into the app.
 
 Rules:
 
 - If the user does NOT specify a hotkey, pick a sensible default based on intent:
-  - For example the command is about ChatGPT or AI assistants, use:
-      { "mods": ["cmd", "alt"], "key": "G" }
-  - For example the command is about Twitter / X, use:
-      { "mods": ["cmd", "alt"], "key": "T" }
-  - For other cases choose a reasonable { "cmd", "alt" } + letter.
+- Choose a reasonable { "cmd", "alt" } + letter combo.
+
 - Prefer the simplest sequence of tools that accomplishes the user’s request.
-- Never add llm_transform_clipboard unless there is an explicit transformation
+
+- Never add llm_transform_clipboard or llm_generate_reply_to_clipboard unless there is an explicit transformation/generation
   request in the user’s command.
-- When using llm_transform_clipboard tool, make sure to use the paste_clipboard tool right after.
+
+- When using llm_transform_clipboard, you SHOULD typically follow it with
+  paste_clipboard in order to insert the transformed text somewhere, unless
+  the user’s instruction clearly indicates otherwise.
+
+- When using llm_generate_reply_to_clipboard, you SHOULD typically follow it with
+  paste_clipboard, so that the drafted reply is inserted into the current app.
+
+- ONLY use append_to_clipboard to add short instructions like "Explain this",
+  "Translate this to French", etc., while preserving the original text.
+
+- For commands that simply MOVE text (e.g. "send my selection to ChatGPT",
+  "search this selection on Google"), use combinations of:
+  copy_selection, wait, open_app, open_url, focus_url_bar, paste_clipboard, press_enter.
+
 - ALWAYS respond with ONLY the JSON object. No backticks, no markdown, no explanation.
 
-Example:
+Example 1:
+
+User: "When I press this, send my selected text to ChatGPT."
+
+You MUST output something like:
+
+{
+  "name": "Send selection to ChatGPT",
+  "hotkey": { "mods": ["cmd", "alt"], "key": "G" },
+  "steps": [
+    { "tool": "debug_log", "input": { "text": "Sending selection to ChatGPT..." } },
+    { "tool": "copy_selection", "input": {} },
+    { "tool": "wait", "input": { "seconds": 0.4 } },
+    { "tool": "open_app", "input": { "name": "Google Chrome" } },
+    { "tool": "wait", "input": { "seconds": 1.0 } },
+    { "tool": "open_url", "input": { "url": "https://chatgpt.com" } },
+    { "tool": "wait", "input": { "seconds": 2.0 } },
+    { "tool": "paste_clipboard", "input": {} }
+  ]
+}
+
+Example 2:
 
 User: "When I press this, send my selected text to ChatGPT and explain it."
 
@@ -284,23 +531,71 @@ You MUST output something like:
   "name": "Send selection to ChatGPT and ask to explain",
   "hotkey": { "mods": ["cmd", "alt"], "key": "G" },
   "steps": [
-    { "tool": "debug_log", "input": { "text": "Starting workflow..." } },
+    { "tool": "debug_log", "input": { "text": "Sending selection to ChatGPT with 'Explain this'..." } },
     { "tool": "copy_selection", "input": {} },
     { "tool": "wait", "input": { "seconds": 0.4 } },
     {
       "tool": "append_to_clipboard",
       "input": { "suffix": "Explain this." }
     },
-    {
-      "tool": "open_url",
-      "input": { "url": "https://chatgpt.com" }
-    },
+    { "tool": "open_app", "input": { "name": "Google Chrome" } },
+    { "tool": "wait", "input": { "seconds": 1.0 } },
+    { "tool": "open_url", "input": { "url": "https://chatgpt.com" } },
     { "tool": "wait", "input": { "seconds": 2.0 } },
     { "tool": "paste_clipboard", "input": {} }
   ]
 }
 
+Example 3:
+
+User: "When I press this, search my selection on Google."
+
+You MUST output something like:
+
+{
+  "name": "Google search selection",
+  "hotkey": { "mods": ["cmd", "alt"], "key": "S" },
+  "steps": [
+    { "tool": "debug_log", "input": { "text": "Google searching selection..." } },
+    { "tool": "copy_selection", "input": {} },
+    { "tool": "wait", "input": { "seconds": 0.3 } },
+    { "tool": "open_app", "input": { "name": "Google Chrome" } },
+    { "tool": "wait", "input": { "seconds": 0.7 } },
+    { "tool": "focus_url_bar", "input": {} },
+    { "tool": "wait", "input": { "seconds": 0.2 } },
+    { "tool": "paste_clipboard", "input": {} },
+    { "tool": "wait", "input": { "seconds": 0.2 } },
+    { "tool": "press_enter", "input": {} }
+  ]
+}
+
+Example 4:
+
+User: "When I press this, draft a polite reply to my selected email and paste it back."
+
+You MUST output something like:
+
+{
+  "name": "Draft polite reply to selected email",
+  "hotkey": { "mods": ["cmd", "alt"], "key": "R" },
+  "steps": [
+    { "tool": "debug_log", "input": { "text": "Drafting polite reply to selected email..." } },
+    { "tool": "copy_selection", "input": {} },
+    { "tool": "wait", "input": { "seconds": 0.4 } },
+    {
+      "tool": "llm_generate_reply_to_clipboard",
+      "input": {
+        "instruction": "Write a short, polite reply to this email."
+      }
+    },
+    { "tool": "wait", "input": { "seconds": 0.3 } },
+    { "tool": "paste_clipboard", "input": {} }
+  ]
+}
+
 """
+
+
 
 # -------- helper functions --------
 def extract_lua_code(plan: str) -> str | None:
@@ -478,6 +773,9 @@ def save_workflows() -> None:
         print(f"[agentic] saved {len(data)} workflows to {WORKFLOWS_PATH}")
     except Exception as e:
         print(f"[agentic] failed to save workflows: {e}")
+
+def run_osascript(script: str) -> None:
+    subprocess.run(["osascript", "-e", script], check=True)
 
 # -------- OpenAI client --------
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
