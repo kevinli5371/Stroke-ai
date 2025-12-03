@@ -24,6 +24,8 @@ class ToolInput(TypedDict, total=False):
     text: str
     url: str
     seconds: float
+    instruction: str
+    name: str
 
 class ToolResult(TypedDict, total=False):
     success: bool
@@ -132,6 +134,7 @@ def tool_llm_transform_clipboard(payload: ToolInput) -> ToolResult:
                     "content": f"Instruction: {instruction}\n\nText:\n{clipboard_text}",
                 },
             ],
+            temperature=0.3, # less randomness for transformations
         )
         transformed_text = completion.choices[0].message.content.strip()
     except Exception as e:
@@ -287,7 +290,7 @@ def tool_llm_generate_reply_to_clipboard(payload: ToolInput) -> ToolResult:
         }
 
     # 2) Get instruction
-    instruction = payload.get("instruction") or payload.get("text")
+    instruction = payload.get("instruction")
     if not instruction:
         # Sensible default if none provided
         instruction = "Write a brief, polite reply to this message."
@@ -436,7 +439,7 @@ Available tools:
 7) "append_to_clipboard"
    - Reads the current clipboard text and appends some extra text to it, then writes the result back to the clipboard.
    - input fields:
-     - "suffix" (preferred) or "text": the text to append.
+     - "text": the text to append.
    - Use this when the user wants to ADD a simple instruction like "Explain this" at the end of their message, without changing the original content.
 
 8) "open_app"
@@ -465,7 +468,7 @@ Available tools:
       asks an LLM to draft a reply according to an instruction, and replaces the
       clipboard contents with the generated reply.
     - input fields:
-      - "instruction" (preferred) or "text":
+      - "instruction":
         a short description of how to reply, such as
         "Write a short, polite reply"
         or "Reply in a casual tone and ask two follow-up questions".
