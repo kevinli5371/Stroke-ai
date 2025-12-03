@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, screen, globalShortcut } from 'electron'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -26,6 +26,9 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 
 let win: BrowserWindow | null
 let overlayWin: BrowserWindow | null
+let awaitingNextKey = false
+let tempKeysTimeout: NodeJS.Timeout | null = null
+let registeredTempKeys: string[] = []
 
 function createWindow() {
   win = new BrowserWindow({
@@ -49,49 +52,44 @@ function createWindow() {
 }
 
 function createOverlayWindow() {
-  const primaryDisplay = screen.getPrimaryDisplay()
-  const { width, height, x, y } = primaryDisplay.workArea
-
-  // pill-shaped overlay centered on the bottom
-  const PILL_WIDTH = 70
-  const PILL_HEIGHT = 28
+  // position overlay centered on the bottom of the primary work area
+  const OVERLAY_W = 260
+  const OVERLAY_H = 40
   const MARGIN = 24
-
-  // center horizontally, anchor to bottom with margin
-  const pillX = Math.round(x + (width - PILL_WIDTH) / 2)
-  const pillY = Math.round(y + height - PILL_HEIGHT - MARGIN)
+  const display = screen.getPrimaryDisplay().workArea
+  const pillX = Math.round(display.x + (display.width - OVERLAY_W) / 2)
+  const pillY = Math.round(display.y + display.height - OVERLAY_H - MARGIN)
 
   overlayWin = new BrowserWindow({
-    width: PILL_WIDTH,
-    height: PILL_HEIGHT,
     x: pillX,
     y: pillY,
+    width: OVERLAY_W,
+    height: OVERLAY_H,
     frame: false,
-    transparent: true,           // allow rounded/transparent styling
+    transparent: true,
+    backgroundColor: '#00000000',
     resizable: false,
     movable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
-    focusable: false, // don't steal focus from the user
-    roundedCorners: true,
+    focusable: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
-      backgroundThrottling: false, // keep overlay responsive
     },
   })
-  overlayWin.setAlwaysOnTop(true, 'screen-saver')
+
+  overlayWin.setIgnoreMouseEvents(false)
 
   if (VITE_DEV_SERVER_URL) {
-    // Dev: Vite dev server, but mark mode=overlay
     overlayWin.loadURL(`${VITE_DEV_SERVER_URL}?mode=overlay`)
   } else {
-    // Prod: load built index.html with ?mode=overlay
     overlayWin.loadFile(path.join(RENDERER_DIST, 'index.html'), {
       search: '?mode=overlay',
     })
   }
 }
+
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
@@ -116,4 +114,27 @@ app.on('activate', () => {
 app.whenReady().then(() => {
   createWindow()
   createOverlayWindow()
+
+  // Global: Command+Enter triggers the “loading” animation
+  const ok = globalShortcut.register('Command+Enter', () => {
+    if (!overlayWin) return
+
+    // tell overlay to start animating
+    overlayWin.webContents.send('overlay-loading', true)
+
+    // TODO: in the real app, stop when the workflow actually finishes
+    // For now, fake “done” after 1.2s
+    setTimeout(() => {
+      overlayWin?.webContents.send('overlay-loading', false)
+    }, 1200)
+  })
+
+  if (!ok) {
+    console.warn('Failed to register global shortcut Command+Enter')
+  }
+})
+
+// clean up shortcuts when app quits
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
 })

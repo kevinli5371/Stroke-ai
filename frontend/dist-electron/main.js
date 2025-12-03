@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen } from "electron";
+import { app, BrowserWindow, globalShortcut, screen } from "electron";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -28,36 +28,31 @@ function createWindow() {
   }
 }
 function createOverlayWindow() {
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height, x, y } = primaryDisplay.workArea;
-  const PILL_WIDTH = 70;
-  const PILL_HEIGHT = 28;
+  const OVERLAY_W = 260;
+  const OVERLAY_H = 40;
   const MARGIN = 24;
-  const pillX = Math.round(x + (width - PILL_WIDTH) / 2);
-  const pillY = Math.round(y + height - PILL_HEIGHT - MARGIN);
+  const display = screen.getPrimaryDisplay().workArea;
+  const pillX = Math.round(display.x + (display.width - OVERLAY_W) / 2);
+  const pillY = Math.round(display.y + display.height - OVERLAY_H - MARGIN);
   overlayWin = new BrowserWindow({
-    width: PILL_WIDTH,
-    height: PILL_HEIGHT,
     x: pillX,
     y: pillY,
+    width: OVERLAY_W,
+    height: OVERLAY_H,
     frame: false,
     transparent: true,
-    // allow rounded/transparent styling
+    backgroundColor: "#00000000",
     resizable: false,
     movable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
-    focusable: false,
-    // don't steal focus from the user
-    roundedCorners: true,
+    focusable: true,
     webPreferences: {
-      preload: path.join(__dirname, "preload.mjs"),
-      backgroundThrottling: false
-      // keep overlay responsive
+      preload: path.join(__dirname, "preload.mjs")
     }
   });
-  overlayWin.setAlwaysOnTop(true, "screen-saver");
+  overlayWin.setIgnoreMouseEvents(false);
   if (VITE_DEV_SERVER_URL) {
     overlayWin.loadURL(`${VITE_DEV_SERVER_URL}?mode=overlay`);
   } else {
@@ -82,6 +77,19 @@ app.on("activate", () => {
 app.whenReady().then(() => {
   createWindow();
   createOverlayWindow();
+  const ok = globalShortcut.register("Command+Enter", () => {
+    if (!overlayWin) return;
+    overlayWin.webContents.send("overlay-loading", true);
+    setTimeout(() => {
+      overlayWin == null ? void 0 : overlayWin.webContents.send("overlay-loading", false);
+    }, 1200);
+  });
+  if (!ok) {
+    console.warn("Failed to register global shortcut Command+Enter");
+  }
+});
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
 });
 export {
   MAIN_DIST,
