@@ -1,24 +1,17 @@
 import "./App.css";
 import { useState, useEffect } from "react";
-import Bubble from "./components/Bubble";
 
 const API = "http://127.0.0.1:8000";
 
 export default function App() {
-  const params = new URLSearchParams(window.location.search);
-  const mode = params.get("mode");
-
   const [command, setCommand] = useState("");      // your natural language command
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+
   const [workflows, setWorkflows] = useState<any[]>([]);
   const [workflowsLoading, setWorkflowsLoading] = useState(false);
   const [workflowsError, setWorkflowsError] = useState<string | null>(null);
-
-  if (mode === "overlay") {
-    return <Bubble />;
-  }
 
   async function fetchWorkflows() {
     try {
@@ -39,6 +32,7 @@ export default function App() {
       setWorkflowsLoading(false);
     }
   }
+
 
   useEffect(() => {
     fetchWorkflows();
@@ -96,6 +90,7 @@ export default function App() {
     }
   }
 
+
   return (
     <main>
       <form onSubmit={handleSubmit}>
@@ -140,9 +135,7 @@ export default function App() {
         )}
 
         {workflows.length === 0 && !workflowsLoading && (
-          <p style={{ opacity: 0.8 }}>
-            No workflows yet. Create one from the form above.
-          </p>
+          <p style={{ opacity: 0.8 }}>No workflows yet. Create one from the form above.</p>
         )}
 
         {workflows.length > 0 && (
@@ -210,9 +203,11 @@ export default function App() {
                 )}
               </li>
             ))}
+
           </ul>
         )}
       </section>
+
     </main>
   );
 }
