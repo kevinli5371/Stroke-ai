@@ -52,6 +52,62 @@ class Workflow(TypedDict):
 WORKFLOWS: Dict[str, Workflow] = {}
 WORKFLOWS_PATH = Path.home() / ".hammerspoon" / "agentic_workflows.json"
 
+# -------- context layer ------------
+def build_context_layer() -> Dict[str, Any]:
+    environment = {
+        "platform": sys.platform,
+        "os": "macOS",  # this app is designed for macOS
+        "default_browser": "Google Chrome", # for now assume that the users default browser is chrome
+    }
+
+    preferences = {
+        # default modifiers for new hotkeys when user doesn't specify one
+        "default_hotkey_mods": ["cmd", "alt"],
+
+        # where to send ChatGPT-type workflows
+        "chatgpt_url": "https://chatgpt.com",
+
+        # a sensible default wait between UI actions
+        "default_wait_seconds": 0.4,
+    }
+
+    # Existing workflows + reserved hotkeys so we can avoid collisions
+    existing_workflows: List[Dict[str, Any]] = []
+    reserved_hotkeys: List[Dict[str, Any]] = []
+
+    for workflow in WORKFLOWS.values():
+        workflow_id = workflow.get("id")
+        workflow_name = workflow.get("name")
+        hotkey = workflow.get("hotkey") if isinstance(workflow, dict) else None
+        steps = workflow.get("steps") if isinstance(workflow, dict) else None
+
+        existing_workflows.append(
+            {
+                "id": workflow_id,
+                "name": workflow_name,
+                "hotkey": hotkey,
+                # we don't need full steps for now, but might include them later
+            }
+        )
+
+        if isinstance(hotkey, dict):
+            mods = hotkey.get("mods") or []
+            key = hotkey.get("key")
+            if key:
+                reserved_hotkeys.append(
+                    {
+                        "mods": mods,
+                        "key": key,
+                    }
+                )
+
+    return {
+        "environment": environment,
+        "preferences": preferences,
+        "existing_workflows": existing_workflows,
+        "reserved_hotkeys": reserved_hotkeys,
+    }
+
 # tool function, tool takes in ToolInput and returns ToolResult
 ToolFn = Callable[[ToolInput], ToolResult]
 TOOLS: Dict[str, ToolFn] = {}
@@ -367,6 +423,24 @@ You are an automation planner for a macOS keyboard-shortcut agent.
 
 Given a natural language command from the user, you MUST respond with a single JSON object that describes a workflow.
 
+In addition to the user command, you will also receive a separate message
+containing a JSON object called the "context".
+
+The context has (at least) these fields:
+
+- "environment": information about the OS and default apps.
+- "preferences": user/app defaults such as default hotkey modifiers,
+  default ChatGPT URL, and default wait times between actions.
+- "existing_workflows": a list of already-defined workflows, each with "id",
+  "name", and "hotkey".
+- "reserved_hotkeys": a list of hotkeys you MUST NOT reuse, each with:
+  { "mods": [...], "key": "X" }.
+
+You MUST respect the context when planning:
+- Prefer using "preferences.default_hotkey_mods" when the user doesn't specify mods.
+- Do NOT propose any hotkey that appears in "reserved_hotkeys".
+- When sending text to ChatGPT, prefer the URL in "preferences.chatgpt_url".
+
 The JSON MUST have exactly this shape:
 
 {
@@ -611,14 +685,32 @@ def plan_workflow_from_command(command: str) -> Workflow:
     if not command.strip():
         raise ValueError("Empty command")
 
+    # build context layer
+    context = build_context_layer()
+    context_json = json.dumps(context, indent=2)
+
     # Use chat.completions with JSON output
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
         response_format={"type": "json_object"},
 
         messages=[
-            {"role": "system", "content": WORKFLOW_PLANNER_PROMPT},
-            {"role": "user", "content": command},
+            {
+                "role": "system",
+                "content": WORKFLOW_PLANNER_PROMPT
+            },
+            {
+                "role": "system",
+                "content": (
+                    "Here is your current context as JSON. "
+                    "You MUST respect this when planning hotkeys and steps:\n\n"
+                    f"{context_json}"
+                ),
+            },
+            {
+                "role": "user",
+                "content": command
+            },
         ],
     )
 
