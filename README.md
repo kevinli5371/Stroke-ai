@@ -1,1 +1,1 @@
-stroke.ai is a tool that converts human language to agentic workflows bound to keyboard shortcuts
+stroke.ai is an ai agent that lets you describe a task in natural language, plans a tool-based workflow, binds it to a keyboard shortcut and provides desktop app that lets you edit and manage these workflows.
