@@ -48,6 +48,7 @@ class Workflow(TypedDict):
     id: str
     name: str
     steps: List[WorkflowStep]
+    hotkey: Optional[Hotkey]
 
 WORKFLOWS: Dict[str, Workflow] = {}
 WORKFLOWS_PATH = Path.home() / ".hammerspoon" / "agentic_workflows.json"
@@ -75,16 +76,16 @@ def build_context_layer() -> Dict[str, Any]:
     existing_workflows: List[Dict[str, Any]] = []
     reserved_hotkeys: List[Dict[str, Any]] = []
 
-    for workflow in WORKFLOWS.values():
-        workflow_id = workflow.get("id")
-        workflow_name = workflow.get("name")
-        hotkey = workflow.get("hotkey") if isinstance(workflow, dict) else None
-        steps = workflow.get("steps") if isinstance(workflow, dict) else None
+    for wf in WORKFLOWS.values():
+        wf_id = wf.get("id")
+        wf_name = wf.get("name")
+        hotkey = wf.get("hotkey") if isinstance(wf, dict) else None
+        steps = wf.get("steps") if isinstance(wf, dict) else None
 
         existing_workflows.append(
             {
-                "id": workflow_id,
-                "name": workflow_name,
+                "id": wf_id,
+                "name": wf_name,
                 "hotkey": hotkey,
                 # we don't need full steps for now, but might include them later
             }
@@ -879,6 +880,12 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 @app.route('/')
 def home():
     return {"status": "ok", "message": "yo gurt"}
+
+# -------- debug context endpoint --------
+@app.route("/api/debug/context", methods=["GET"])
+def debug_context():
+    context = build_context_layer()
+    return jsonify(context)
 
 # -------- hs-running endpoint --------
 @app.route("/api/hs-running", methods=["GET"])
