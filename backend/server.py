@@ -184,7 +184,7 @@ def tool_llm_transform_clipboard(payload: ToolInput) -> ToolResult:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that rewrites or summarizes clipboard text according to an instruction.",
+                    "content": "You are a helpful assistant that reads clipboard text and provides a response based on the instructions providing no extra explanation, only the answer. If you are to respond with text, respond with text, if you are answering a coding problem, respond with ONLY code",
                 },
                 {
                     "role": "user",
