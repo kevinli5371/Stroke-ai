@@ -1066,6 +1066,55 @@ def delete_workflow(workflow_id):
         "deleted_name": deleted.get("name"),
     })
 
+# -------- update-workflow endpoint --------
+@app.route("/api/update-workflow", methods=["POST"])
+def update_workflow():
+    data = request.get_json(force=True)
+    workflow_id = data.get("id")
+    new_name = data.get("name")
+    new_hotkey = data.get("hotkey")
+
+    if not workflow_id or workflow_id not in WORKFLOWS:
+        return jsonify({"status": "error", "message": "Workflow not found"}), 404
+    
+    workflow = WORKFLOWS[workflow_id]
+    
+    if new_name is not None:
+        workflow["name"] = new_name
+    
+    if new_hotkey is not None:
+        # Check for conflicts
+        new_mods = sorted(new_hotkey.get("mods", []))
+        new_key = new_hotkey.get("key", "").upper()
+        
+        for wf_id, wf in WORKFLOWS.items():
+            if wf_id == workflow_id:
+                continue
+            
+            curr_hotkey = wf.get("hotkey")
+            if curr_hotkey:
+                curr_mods = sorted(curr_hotkey.get("mods", []))
+                curr_key = curr_hotkey.get("key", "").upper()
+                
+                if curr_mods == new_mods and curr_key == new_key:
+                    return jsonify({
+                        "status": "error", 
+                        "message": f"Hotkey already used by '{wf['name']}'"
+                    }), 409
+
+        workflow["hotkey"] = new_hotkey
+
+    try:
+        save_workflows()
+        write_hammerspoon_config()
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to save: {str(e)}"}), 500
+
+    return jsonify({
+        "status": "success",
+        "workflow": workflow
+    })
+
 
 if __name__ == '__main__':
     load_workflows()
