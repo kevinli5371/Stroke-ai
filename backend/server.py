@@ -52,6 +52,18 @@ class Workflow(TypedDict):
 
 WORKFLOWS: Dict[str, Workflow] = {}
 WORKFLOWS_PATH = Path.home() / ".hammerspoon" / "agentic_workflows.json"
+RUN_HISTORY_PATH = Path.home() / ".hammerspoon" / "agentic_run_history.json"
+
+class RunLogEntry(TypedDict):
+    id: str
+    workflow_id: str
+    workflow_name: str
+    timestamp: float
+    status: str
+    results: List[Dict[str, Any]]
+
+RUN_HISTORY: List[RunLogEntry] = []
+
 
 # -------- context layer ------------
 def build_context_layer() -> Dict[str, Any]:
@@ -184,6 +196,7 @@ def tool_llm_transform_clipboard(payload: ToolInput) -> ToolResult:
             messages=[
                 {
                     "role": "system",
+                    # this system prompt might be chopped
                     "content": "You are a helpful assistant that reads clipboard text and provides a response based on the instructions providing no extra explanation, only the answer. If you are to respond with text, respond with text, if you are answering a coding problem, respond with ONLY code",
                 },
                 {
@@ -870,6 +883,30 @@ def save_workflows() -> None:
     except Exception as e:
         print(f"[agentic] failed to save workflows: {e}")
 
+def load_run_history() -> None:
+    if not os.path.exists(RUN_HISTORY_PATH):
+        return
+
+    try:
+        with open(RUN_HISTORY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        RUN_HISTORY.clear()
+        RUN_HISTORY.extend(data)
+        print(f"[agentic] loaded {len(RUN_HISTORY)} run logs")
+    except Exception as e:
+        print(f"[agentic] failed to load run history: {e}")
+
+def save_run_history() -> None:
+    try:
+        # Keep only last 50
+        while len(RUN_HISTORY) > 50:
+            RUN_HISTORY.pop(0)
+            
+        with open(RUN_HISTORY_PATH, "w", encoding="utf-8") as f:
+            json.dump(RUN_HISTORY, f, indent=2)
+    except Exception as e:
+        print(f"[agentic] failed to save run history: {e}")
+
 def run_osascript(script: str) -> None:
     subprocess.run(["osascript", "-e", script], check=True)
 
@@ -904,6 +941,16 @@ def api_list_workflows():
         "status": "success",
         "workflows": list(WORKFLOWS.values()),
     })
+
+# -------- run-history endpoint --------
+@app.route("/api/run-history", methods=["GET"])
+def api_run_history():
+    # Return in reverse chronological order (newest first)
+    return jsonify({
+        "status": "success",
+        "history": list(reversed(RUN_HISTORY))
+    })
+
 
 # -------- plan-workflow endpoint --------
 @app.post("/api/plan-workflow")
@@ -969,7 +1016,26 @@ def run_workflow():
             "output": result.get("text", "")
         })
 
+    run_entry: RunLogEntry = {
+        "id": str(uuid.uuid4()),
+        "workflow_id": workflow_id,
+        "workflow_name": workflow["name"],
+        "timestamp": time.time(),
+        "status": "success",
+        "results": results
+    }
+
+    # Check if any step failed
+    for r in results:
+        if r.get("status") == "error":
+            run_entry["status"] = "error"
+            break
+            
+    RUN_HISTORY.append(run_entry)
+    save_run_history()
+
     return jsonify({"status": "success", "workflow_id": workflow_id, "results": results})
+
 
 # -------- delete-workflow endpoint --------
 @app.route("/api/delete-workflow/<workflow_id>", methods=["DELETE"])
@@ -1003,6 +1069,7 @@ def delete_workflow(workflow_id):
 
 if __name__ == '__main__':
     load_workflows()
+    load_run_history()
     # Run the server on port 8000
     # print("Starting server on http://localhost:8000")
     app.run(debug=True, port=8000)
