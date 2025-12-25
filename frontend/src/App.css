@@ -18,39 +18,68 @@
 }
 
 /* Logic for Liquid/Gooey Effects */
-.goo-container {
-    filter: url('#goo');
+.overlay-wrapper {
     position: relative;
+    width: 200px;
+    height: 60px;
+    /* Centers the layers inside */
     display: flex;
     justify-content: center;
     align-items: center;
-    width: 200px;
-    /* Arbitrary container width to allow movement */
-    height: 60px;
 }
 
-.blob {
+.layer-container {
     position: absolute;
-    background: rgba(20, 20, 20, 0.95);
-    border-radius: 20px;
-    /* High radius for circle/pill */
-    color: white;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    /* Helper to center items initially if needed */
+    align-items: center;
+    pointer-events: none;
+    /* Let clicks pass through */
+}
+
+.goo-layer {
+    filter: url('#goo');
+    opacity: 0.95;
+    /* Global opacity for the dark shape */
+}
+
+/* Base style for moving parts */
+.motion-element {
+    position: absolute;
+    /* We use absolute + transform for movement */
     display: flex;
     align-items: center;
     justify-content: center;
     transition: all 0.8s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.blob-bg {
+    background: #141414;
+    border-radius: 20px;
+    border: none;
+    /* No border in goo layer */
+}
+
+.blob-content {
+    background: transparent;
+    border-radius: 20px;
+    color: white;
     border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-/* The left part (Text Pill) */
-.blob-pill {
+    /* Sharp border */
     z-index: 10;
-    height: 27px;
 }
 
-/* The right part (Spinner Circle) */
-.blob-circle {
-    z-index: 9;
+/* Specific Sizes/Shapes */
+/* Pill */
+.shape-pill {
+    height: 27px;
+    /* Width is dynamic via inline style */
+}
+
+/* Circle */
+.shape-circle {
     width: 27px;
     height: 27px;
     border-radius: 50%;

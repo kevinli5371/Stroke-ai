@@ -59,36 +59,58 @@ export default function Overlay() {
             overflow: "hidden"
         }}>
 
-            {/* The Container with the Goo Filter */}
-            <div className="goo-container">
+            {/* Wrapper for the layered effect */}
+            <div className="overlay-wrapper">
 
-                {/* 1. The Pill (Text) - Moves Left */}
-                <div
-                    className="blob blob-pill"
-                    style={{
-                        width: active ? "75px" : "27px", /* Grow width */
-                        transform: active ? "translateX(-35px)" : "translateX(0)", /* Move Left */
-                        opacity: 1
-                    }}
-                >
-                    {active ? (
-                        <span style={{ fontSize: "13px", fontWeight: 600, padding: "0 2px", whiteSpace: "nowrap" }}>
-                            {displayText}
-                        </span>
-                    ) : (
-                        <span style={{ fontSize: "14px", fontWeight: 700 }}>⌘</span>
-                    )}
+                {/* Layer 1: The Gooey Shapes (Backgrounds) */}
+                <div className="layer-container goo-layer">
+                    {/* Pill BG */}
+                    <div
+                        className="motion-element blob-bg shape-pill"
+                        style={{
+                            width: active ? "75px" : "27px",
+                            transform: active ? "translateX(-30px)" : "translateX(0)"
+                        }}
+                    />
+                    {/* Circle BG */}
+                    <div
+                        className="motion-element blob-bg shape-circle"
+                        style={{
+                            transform: active ? "translateX(30px)" : "translateX(0)",
+                            opacity: active ? 1 : 0
+                        }}
+                    />
                 </div>
 
-                {/* 2. The Circle (Spinner) - Moves Right */}
-                <div
-                    className="blob blob-circle"
-                    style={{
-                        transform: active ? "translateX(35px)" : "translateX(0)", /* Move Right */
-                        opacity: active ? 1 : 0 /* Hide when idle so it merges fully */
-                    }}
-                >
-                    {active && <div className="spinner"></div>}
+                {/* Layer 2: The Content (Text/Spinner) */}
+                <div className="layer-container content-layer">
+                    {/* Pill Content */}
+                    <div
+                        className="motion-element blob-content shape-pill"
+                        style={{
+                            width: active ? "75px" : "27px",
+                            transform: active ? "translateX(-30px)" : "translateX(0)"
+                        }}
+                    >
+                        {active ? (
+                            <span style={{ fontSize: "13px", fontWeight: 600, padding: "0 2px", whiteSpace: "nowrap" }}>
+                                {displayText}
+                            </span>
+                        ) : (
+                            <span style={{ fontSize: "14px", fontWeight: 700 }}>⌘</span>
+                        )}
+                    </div>
+
+                    {/* Circle Content */}
+                    <div
+                        className="motion-element blob-content shape-circle"
+                        style={{
+                            transform: active ? "translateX(30px)" : "translateX(0)",
+                            opacity: active ? 1 : 0
+                        }}
+                    >
+                        {active && <div className="spinner"></div>}
+                    </div>
                 </div>
 
             </div>
