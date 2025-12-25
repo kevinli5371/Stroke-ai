@@ -91,7 +91,8 @@ export default function Dashboard() {
             }
 
         } catch (err: any) {
-            console.error(err);
+            // console.error(err);
+            alert(err?.message || String(err));
             setError(err?.message || String(err));
         } finally {
             setLoading(false);
@@ -125,6 +126,7 @@ export default function Dashboard() {
             setEditingId(null);
             await fetchWorkflows(); // refresh list
         } catch (e: any) {
+            alert(e?.message || String(e));
             setWorkflowsError(e?.message || String(e));
         } finally {
             setWorkflowsLoading(false);
