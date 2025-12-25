@@ -106,6 +106,7 @@ function createOverlayWindow() {
     alwaysOnTop: true,
     hasShadow: false,
     resizable: false,
+    focusable: false, // Prevent stealing focus
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
@@ -132,6 +133,12 @@ function createWindows() {
   createDashboardWindow()
   createOverlayWindow()
   startLocalServer()
+
+  // Ensure dashboard is focused
+  if (dashboardWin) {
+    dashboardWin.show()
+    dashboardWin.focus()
+  }
 }
 
 app.on('window-all-closed', () => {

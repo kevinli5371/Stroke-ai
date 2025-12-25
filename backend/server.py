@@ -988,23 +988,23 @@ def run_workflow():
     
     results: List[Dict[str, Any]] = []
 
+    # Notify Electron Overlay
+    try:
+        requests.post(
+            "http://127.0.0.1:4444/trigger", 
+            json={
+                "message": workflow["name"],
+                "hotkey": workflow.get("hotkey")
+            }, 
+            timeout=1.0
+        )
+    except Exception:
+        # It's fine if the overlay server isn't running
+        pass
+
     for step in workflow["steps"]:
         tool_name = step.get("tool")
         tool_input: ToolInput = step.get("input", {})
-
-        # Notify Electron Overlay
-        try:
-            requests.post(
-                "http://127.0.0.1:4444/trigger", 
-                json={
-                    "message": workflow["name"],
-                    "hotkey": workflow.get("hotkey")
-                }, 
-                timeout=1.0
-            )
-        except Exception:
-            # It's fine if the overlay server isn't running
-            pass
 
         tool_fn = TOOLS.get(tool_name)
         if not tool_fn:
