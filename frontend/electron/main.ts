@@ -108,6 +108,8 @@ function createOverlayWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
+    type: 'panel',
+    minimizable: false,
   })
 
   // Open DevTools to debug
@@ -160,8 +162,20 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
+  // On macOS, re-create a window in the app when the dock icon is clicked
+  // and there are no other windows open (or dashboard is missing).
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindows()
+  } else {
+    // If the overlay is still around but dashboard is gone/closed
+    if (!dashboardWin || dashboardWin.isDestroyed()) {
+      createDashboardWindow()
+      dashboardWin?.show()
+    } else {
+      if (dashboardWin.isMinimized()) dashboardWin.restore()
+      dashboardWin.show()
+      dashboardWin.focus()
+    }
   }
 })
 

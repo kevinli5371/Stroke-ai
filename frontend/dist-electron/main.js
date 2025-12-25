@@ -83,7 +83,9 @@ function createOverlayWindow() {
     // Prevent stealing focus
     webPreferences: {
       preload: path.join(__dirname, "preload.mjs")
-    }
+    },
+    type: "panel",
+    minimizable: false
   });
   overlayWin.setAlwaysOnTop(true, "floating", 1);
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -121,6 +123,15 @@ app.on("window-all-closed", () => {
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindows();
+  } else {
+    if (!dashboardWin || dashboardWin.isDestroyed()) {
+      createDashboardWindow();
+      dashboardWin == null ? void 0 : dashboardWin.show();
+    } else {
+      if (dashboardWin.isMinimized()) dashboardWin.restore();
+      dashboardWin.show();
+      dashboardWin.focus();
+    }
   }
 });
 app.whenReady().then(createWindows);
