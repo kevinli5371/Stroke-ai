@@ -73,8 +73,8 @@ export default function Overlay() {
                     justifyContent: "center",
                     transition: "all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1)",
                     // boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-                    width: active ? "120px" : "32px",
-                    height: "32px",
+                    width: active ? "102px" : "27px",
+                    height: "27px",
                     overflow: "hidden",
                     whiteSpace: "nowrap",
                     color: "white",
@@ -82,14 +82,14 @@ export default function Overlay() {
                 }}
             >
                 {active ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "0 10px" }}>
-                        <span style={{ fontSize: "15px", fontWeight: 600 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "0 8px" }}>
+                        <span style={{ fontSize: "13px", fontWeight: 600 }}>
                             {displayText}
                         </span>
                         <div className="spinner"></div>
                     </div>
                 ) : (
-                    <span style={{ fontSize: "16px", fontWeight: 700 }}>⌘</span>
+                    <span style={{ fontSize: "14px", fontWeight: 700 }}>⌘</span>
                 )}
             </div>
         </div>
