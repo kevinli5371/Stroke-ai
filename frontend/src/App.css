@@ -16,3 +16,42 @@
         transform: rotate(360deg);
     }
 }
+
+/* Logic for Liquid/Gooey Effects */
+.goo-container {
+    filter: url('#goo');
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 200px;
+    /* Arbitrary container width to allow movement */
+    height: 60px;
+}
+
+.blob {
+    position: absolute;
+    background: rgba(20, 20, 20, 0.95);
+    border-radius: 20px;
+    /* High radius for circle/pill */
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.8s cubic-bezier(0.19, 1, 0.22, 1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* The left part (Text Pill) */
+.blob-pill {
+    z-index: 10;
+    height: 27px;
+}
+
+/* The right part (Spinner Circle) */
+.blob-circle {
+    z-index: 9;
+    width: 27px;
+    height: 27px;
+    border-radius: 50%;
+}

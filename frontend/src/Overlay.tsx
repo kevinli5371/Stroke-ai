@@ -13,16 +13,14 @@ export default function Overlay() {
     const [displayText, setDisplayText] = useState("");
 
     useEffect(() => {
-        // Prevent scrolling globally for the overlay window
+        // Prevent scrolling globally
         document.body.style.overflow = "hidden";
         document.documentElement.style.overflow = "hidden";
 
-        // Listen for trigger events from main process
+        // Listen for trigger events
         // @ts-ignore
         window.ipcRenderer?.on("trigger", (_event, payload) => {
-            // payload can be a string (legacy) or object { message, hotkey }
             let textToShow = "";
-
             if (typeof payload === "string") {
                 textToShow = payload;
             } else if (payload && typeof payload === "object") {
@@ -43,7 +41,6 @@ export default function Overlay() {
         });
 
         return () => {
-            // Cleanup if needed
             document.body.style.overflow = "auto";
             document.documentElement.style.overflow = "auto";
             // @ts-ignore
@@ -52,46 +49,60 @@ export default function Overlay() {
     }, []);
 
     return (
-        <div
-            style={{
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                height: "100vh",
-                width: "100%",
-                background: "transparent",
-                overflow: "hidden" // Prevent scrollbars
-            }}
-        >
-            <div
-                className={active ? "pill active" : "pill idle"}
-                style={{
-                    background: "rgba(20, 20, 20, 0.95)", // Almost opaque dark
-                    borderRadius: "999px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transition: "all 0.8s cubic-bezier(0.19, 1, 0.22, 1)",
-                    // boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-                    width: active ? "102px" : "27px",
-                    height: "27px",
-                    overflow: "hidden",
-                    whiteSpace: "nowrap",
-                    color: "white",
-                    border: "1px solid rgba(255,255,255,0.1)"
-                }}
-            >
-                {active ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "0 8px" }}>
-                        <span style={{ fontSize: "13px", fontWeight: 600 }}>
+        <div style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            height: "100vh",
+            width: "100%",
+            background: "transparent",
+            overflow: "hidden"
+        }}>
+
+            {/* The Container with the Goo Filter */}
+            <div className="goo-container">
+
+                {/* 1. The Pill (Text) - Moves Left */}
+                <div
+                    className="blob blob-pill"
+                    style={{
+                        width: active ? "75px" : "27px", /* Grow width */
+                        transform: active ? "translateX(-35px)" : "translateX(0)", /* Move Left */
+                        opacity: 1
+                    }}
+                >
+                    {active ? (
+                        <span style={{ fontSize: "13px", fontWeight: 600, padding: "0 2px", whiteSpace: "nowrap" }}>
                             {displayText}
                         </span>
-                        <div className="spinner"></div>
-                    </div>
-                ) : (
-                    <span style={{ fontSize: "14px", fontWeight: 700 }}>⌘</span>
-                )}
+                    ) : (
+                        <span style={{ fontSize: "14px", fontWeight: 700 }}>⌘</span>
+                    )}
+                </div>
+
+                {/* 2. The Circle (Spinner) - Moves Right */}
+                <div
+                    className="blob blob-circle"
+                    style={{
+                        transform: active ? "translateX(35px)" : "translateX(0)", /* Move Right */
+                        opacity: active ? 1 : 0 /* Hide when idle so it merges fully */
+                    }}
+                >
+                    {active && <div className="spinner"></div>}
+                </div>
+
             </div>
+
+            {/* SVG Filter Definition (Hidden) */}
+            <svg style={{ visibility: "hidden", position: "absolute" }} width="0" height="0">
+                <defs>
+                    <filter id="goo">
+                        <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
+                        <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 19 -9" result="goo" />
+                        <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+                    </filter>
+                </defs>
+            </svg>
         </div>
     );
 }
