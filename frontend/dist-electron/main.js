@@ -102,11 +102,17 @@ function createWindows() {
   createDashboardWindow();
   createOverlayWindow();
   startLocalServer();
+  if (process.platform === "darwin") {
+    app.dock.show();
+  }
   if (dashboardWin) {
     dashboardWin.show();
     dashboardWin.focus();
   }
 }
+app.on("before-quit", () => {
+  console.log("[Electron Main] App is quitting...");
+});
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();

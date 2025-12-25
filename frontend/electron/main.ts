@@ -137,12 +137,21 @@ function createWindows() {
   createOverlayWindow()
   startLocalServer()
 
+  // FORCE DOCK ICON TO SHOW
+  if (process.platform === 'darwin') {
+    app.dock.show();
+  }
+
   // Ensure dashboard is focused
   if (dashboardWin) {
     dashboardWin.show()
     dashboardWin.focus()
   }
 }
+
+app.on('before-quit', () => {
+  console.log("[Electron Main] App is quitting...");
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
