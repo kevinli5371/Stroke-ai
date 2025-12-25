@@ -49,7 +49,10 @@ export default function Dashboard() {
                 throw new Error(data.message || "Failed to fetch run history");
             }
 
-            setRecentRuns(data.history || []);
+            // limit to 10 runs but can be more (up to 50)
+            setRecentRuns(data.history.slice(0, 10) || []);
+            // setRecentRuns(data.history || []);
+
         } catch (e: any) {
             setRunsError(e?.message || String(e));
         } finally {
@@ -324,7 +327,14 @@ export default function Dashboard() {
                                         {run.workflow_name || "(unnamed)"}
                                     </div>
                                     <div className="item-meta">
-                                        {new Date(run.timestamp * 1000).toLocaleTimeString()}
+                                        {(() => {
+                                            const date = new Date(run.timestamp * 1000);
+                                            const today = new Date();
+                                            const isToday = date.getDate() === today.getDate() &&
+                                                date.getMonth() === today.getMonth() &&
+                                                date.getFullYear() === today.getFullYear();
+                                            return isToday ? date.toLocaleTimeString() : date.toLocaleString();
+                                        })()}
                                     </div>
                                 </div>
 
