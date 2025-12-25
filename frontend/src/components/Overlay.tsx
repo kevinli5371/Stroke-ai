@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import "./App.css"; // Reuse or create Overlay.css
+import "../styles/Overlay.css";
+/* import "../styles/App.css";  <-- If we decide to keep shared styles there, or we can merge them. */
 
 const MOD_SYMBOLS: Record<string, string> = {
     cmd: "⌘",
@@ -49,15 +50,7 @@ export default function Overlay() {
     }, []);
 
     return (
-        <div style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            height: "100vh",
-            width: "100%",
-            background: "transparent",
-            overflow: "hidden"
-        }}>
+        <div className="overlay-container">
 
             {/* Wrapper for the layered effect */}
             <div className="overlay-wrapper">
@@ -93,11 +86,11 @@ export default function Overlay() {
                         }}
                     >
                         {active ? (
-                            <span style={{ fontSize: "13px", fontWeight: 600, padding: "0 2px", whiteSpace: "nowrap" }}>
+                            <span className="pill-text-active">
                                 {displayText}
                             </span>
                         ) : (
-                            <span style={{ fontSize: "14px", fontWeight: 700 }}>⌘</span>
+                            <span className="pill-text-idle">⌘</span>
                         )}
                     </div>
 
@@ -116,7 +109,7 @@ export default function Overlay() {
             </div>
 
             {/* SVG Filter Definition (Hidden) */}
-            <svg style={{ visibility: "hidden", position: "absolute" }} width="0" height="0">
+            <svg className="svg-filter-def" width="0" height="0">
                 <defs>
                     <filter id="goo">
                         <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />

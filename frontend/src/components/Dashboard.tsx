@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import "./App.css";
+import "../styles/Dashboard.css";
 
 const API = "http://127.0.0.1:8000";
 
@@ -174,61 +174,41 @@ export default function Dashboard() {
                 {error && <p>{error}</p>}
             </form>
 
-            <section
-                style={{
-                    marginTop: "1.5rem",
-                    padding: "1rem",
-                    border: "1px solid #333",
-                    borderRadius: "8px",
-                }}
-            >
-                <div
-                    style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginBottom: "0.5rem",
-                    }}
-                >
-                    <h2 style={{ margin: 0 }}>Saved workflows</h2>
+            <section className="dashboard-section">
+                <div className="section-header">
+                    <h2 className="section-title">Saved workflows</h2>
                     <button onClick={fetchWorkflows} disabled={workflowsLoading}>
                         {workflowsLoading ? "Refreshing..." : "Refresh"}
                     </button>
                 </div>
 
                 {workflowsError && (
-                    <p style={{ color: "red", marginTop: "0.25rem" }}>{workflowsError}</p>
+                    <p className="error-message">{workflowsError}</p>
                 )}
 
                 {workflows.length === 0 && !workflowsLoading && (
-                    <p style={{ opacity: 0.8 }}>No workflows yet. Create one from the form above.</p>
+                    <p className="list-empty">No workflows yet. Create one from the form above.</p>
                 )}
 
                 {workflows.length > 0 && (
-                    <ul style={{ listStyle: "none", padding: 0, marginTop: "0.5rem" }}>
+                    <ul className="dashboard-list">
                         {workflows.map((workflow) => (
-                            <li
-                                key={workflow.id}
-                                style={{
-                                    padding: "0.5rem 0.25rem",
-                                    borderTop: "1px solid #444",
-                                }}
-                            >
+                            <li key={workflow.id} className="list-item">
                                 {editingId === workflow.id ? (
-                                    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                                    <div className="edit-form-container">
                                         {/* EDIT MODE */}
                                         <input
                                             type="text"
                                             value={editName}
                                             onChange={(e) => setEditName(e.target.value)}
                                             placeholder="Workflow Name"
-                                            style={{ padding: "0.25rem" }}
+                                            className="edit-input"
                                         />
 
-                                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", fontSize: "0.9rem" }}>
+                                        <div className="edit-hotkey-row">
                                             <span style={{ opacity: 0.8 }}>Mods:</span>
                                             {["cmd", "alt", "ctrl", "shift"].map((mod) => (
-                                                <label key={mod} style={{ display: "flex", alignItems: "center", gap: "0.2rem" }}>
+                                                <label key={mod} className="edit-label">
                                                     <input
                                                         type="checkbox"
                                                         checked={editHotkey.mods.includes(mod)}
@@ -250,12 +230,12 @@ export default function Dashboard() {
                                                 type="text"
                                                 value={editHotkey.key}
                                                 onChange={(e) => setEditHotkey(prev => ({ ...prev, key: e.target.value.toUpperCase().slice(0, 1) }))}
-                                                style={{ width: "30px", textAlign: "center", padding: "0.25rem" }}
+                                                className="edit-key-input"
                                                 maxLength={1}
                                             />
                                         </div>
 
-                                        <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+                                        <div className="edit-actions">
                                             <button onClick={() => handleSaveEdit(workflow.id)} disabled={workflowsLoading}>Save</button>
                                             <button onClick={() => setEditingId(null)} disabled={workflowsLoading}>Cancel</button>
                                         </div>
@@ -263,21 +243,14 @@ export default function Dashboard() {
                                 ) : (
                                     <>
                                         {/* DISPLAY MODE */}
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                justifyContent: "space-between",
-                                                alignItems: "center",
-                                                gap: "0.5rem",
-                                            }}
-                                        >
+                                        <div className="item-header">
                                             <div>
-                                                <div style={{ fontWeight: 600 }}>
+                                                <div className="item-title">
                                                     {workflow.name || "(unnamed workflow)"}
                                                 </div>
 
                                                 {workflow.hotkey && (
-                                                    <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
+                                                    <div className="item-subtitle">
                                                         Hotkey:{" "}
                                                         {workflow.hotkey.mods && workflow.hotkey.mods.length > 0
                                                             ? workflow.hotkey.mods.join(" + ") + " + "
@@ -287,30 +260,16 @@ export default function Dashboard() {
                                                 )}
                                             </div>
 
-                                            <div style={{ display: "flex", gap: "0.25rem" }}>
+                                            <div className="item-actions">
                                                 <button
                                                     onClick={() => startEditing(workflow)}
-                                                    style={{
-                                                        fontSize: "0.8rem",
-                                                        padding: "0.15rem 0.5rem",
-                                                        borderRadius: "999px",
-                                                        border: "1px solid #666",
-                                                        background: "transparent",
-                                                        cursor: "pointer",
-                                                    }}
+                                                    className="action-btn"
                                                 >
                                                     Edit
                                                 </button>
                                                 <button
                                                     onClick={() => handleDelete(workflow.id)}
-                                                    style={{
-                                                        fontSize: "0.8rem",
-                                                        padding: "0.15rem 0.5rem",
-                                                        borderRadius: "999px",
-                                                        border: "1px solid #666",
-                                                        background: "transparent",
-                                                        cursor: "pointer",
-                                                    }}
+                                                    className="action-btn"
                                                 >
                                                     Delete
                                                 </button>
@@ -318,7 +277,7 @@ export default function Dashboard() {
                                         </div>
 
                                         {workflow.steps && workflow.steps.length > 0 && (
-                                            <div style={{ marginTop: "0.25rem", fontSize: "0.9rem" }}>
+                                            <div className="steps-display">
                                                 <span style={{ opacity: 0.8 }}>Steps:</span>{" "}
                                                 {workflow.steps
                                                     .map(
@@ -340,69 +299,43 @@ export default function Dashboard() {
                 )}
             </section>
 
-            <section
-                style={{
-                    marginTop: "1.5rem",
-                    padding: "1rem",
-                    border: "1px solid #333",
-                    borderRadius: "8px",
-                }}
-            >
-                <div
-                    style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginBottom: "0.5rem",
-                    }}
-                >
-                    <h2 style={{ margin: 0 }}>Recent Runs</h2>
+            <section className="dashboard-section">
+                <div className="section-header">
+                    <h2 className="section-title">Recent Runs</h2>
                     <button onClick={fetchRecentRuns} disabled={runsLoading}>
                         {runsLoading ? "Refreshing..." : "Refresh"}
                     </button>
                 </div>
 
                 {runsError && (
-                    <p style={{ color: "red", marginTop: "0.25rem" }}>{runsError}</p>
+                    <p className="error-message">{runsError}</p>
                 )}
 
                 {recentRuns.length === 0 && !runsLoading && (
-                    <p style={{ opacity: 0.8 }}>No runs recorded yet.</p>
+                    <p className="list-empty">No runs recorded yet.</p>
                 )}
 
                 {recentRuns.length > 0 && (
-                    <ul style={{ listStyle: "none", padding: 0, marginTop: "0.5rem" }}>
+                    <ul className="dashboard-list">
                         {recentRuns.map((run) => (
-                            <li
-                                key={run.id}
-                                style={{
-                                    padding: "0.5rem 0.25rem",
-                                    borderTop: "1px solid #444",
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        justifyContent: "space-between",
-                                        alignItems: "center"
-                                    }}
-                                >
-                                    <div style={{ fontWeight: 600 }}>
+                            <li key={run.id} className="list-item">
+                                <div className="item-header">
+                                    <div className="item-title">
                                         {run.workflow_name || "(unnamed)"}
                                     </div>
-                                    <div style={{ fontSize: "0.8rem", opacity: 0.7 }}>
+                                    <div className="item-meta">
                                         {new Date(run.timestamp * 1000).toLocaleTimeString()}
                                     </div>
                                 </div>
 
-                                <div style={{ fontSize: "0.9rem", marginTop: "0.25rem" }}>
-                                    Status: <span style={{ color: run.status === "success" ? "#4caf50" : "#f44336" }}>{run.status}</span>
+                                <div className="run-status">
+                                    Status: <span className={run.status === "success" ? "status-success" : "status-failure"}>{run.status}</span>
                                 </div>
 
                                 {run.results && (
-                                    <div style={{ marginTop: "0.5rem", fontSize: "0.85rem", opacity: 0.9 }}>
+                                    <div className="run-results">
                                         {run.results.map((r: any, idx: number) => (
-                                            <div key={idx} style={{ marginBottom: "0.25rem" }}>
+                                            <div key={idx} className="result-item">
                                                 <span style={{ fontWeight: 600 }}>{r.tool}:</span>{" "}
                                                 <span>{r.output || r.message || "(no output)"}</span>
                                             </div>

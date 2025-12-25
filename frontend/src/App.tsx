@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import Dashboard from "./Dashboard";
-import Overlay from "./Overlay";
+import Dashboard from "./components/Dashboard";
+import Overlay from "./components/Overlay";
 
 export default function App() {
   const [isOverlay, setIsOverlay] = useState(false);
