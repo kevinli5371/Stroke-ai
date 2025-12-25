@@ -71,7 +71,7 @@ export default function Overlay() {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    transition: "all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1)",
+                    transition: "all 0.8s cubic-bezier(0.19, 1, 0.22, 1)",
                     // boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                     width: active ? "102px" : "27px",
                     height: "27px",

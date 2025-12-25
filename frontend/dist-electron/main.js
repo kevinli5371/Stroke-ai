@@ -89,6 +89,7 @@ function createOverlayWindow() {
   });
   overlayWin.setAlwaysOnTop(true, "floating", 1);
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  overlayWin.setIgnoreMouseEvents(true);
   if (VITE_DEV_SERVER_URL) {
     const url = `${VITE_DEV_SERVER_URL}?overlay`;
     console.log(`Loading overlay URL: ${url}`);

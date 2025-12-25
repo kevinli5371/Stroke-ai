@@ -119,6 +119,9 @@ function createOverlayWindow() {
   overlayWin.setAlwaysOnTop(true, 'floating', 1)
   overlayWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
+  // Make click-through (ignore mouse events)
+  overlayWin.setIgnoreMouseEvents(true)
+
   // Load with ?overlay query param to trigger Overlay component
   if (VITE_DEV_SERVER_URL) {
     const url = `${VITE_DEV_SERVER_URL}?overlay`
