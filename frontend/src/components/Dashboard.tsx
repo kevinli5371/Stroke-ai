@@ -142,6 +142,8 @@ export default function Dashboard() {
     }
 
     async function handleDelete(id: string) {
+        if (!window.confirm("Are you sure you want to delete this workflow?")) return;
+
         try {
             setWorkflowsError(null);
             setWorkflowsLoading(true);
