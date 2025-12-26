@@ -337,7 +337,7 @@ export default function Dashboard() {
                                             const isToday = date.getDate() === today.getDate() &&
                                                 date.getMonth() === today.getMonth() &&
                                                 date.getFullYear() === today.getFullYear();
-                                            return isToday ? date.toLocaleTimeString() : date.toLocaleString();
+                                            return isToday ? "Today " + date.toLocaleTimeString() : date.toLocaleString();
                                         })()}
                                     </div>
                                 </div>
