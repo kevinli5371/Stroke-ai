@@ -1,83 +1,73 @@
 import { useState, useEffect } from "react";
 import "../styles/Dashboard.css";
+import Sidebar from "./Sidebar";
+import HomeView from "./HomeView";
+import WorkflowDetail from "./WorkflowDetail";
+import HistoryPanel from "./HistoryPanel";
 
 const API = "http://127.0.0.1:8000";
 
 export default function Dashboard() {
-    const [command, setCommand] = useState("");      // your natural language command
-    const [loading, setLoading] = useState(false);
+    // Global Data State
+    const [workflows, setWorkflows] = useState<any[]>([]);
+    const [recentRuns, setRecentRuns] = useState<any[]>([]);
+
+    // UI State
+    const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+    // Loading/Error States
+    const [loading, setLoading] = useState(false); // For submitting new command
     const [error, setError] = useState<string | null>(null);
 
-
-    const [workflows, setWorkflows] = useState<any[]>([]);
-    const [workflowsLoading, setWorkflowsLoading] = useState(false);
-    const [workflowsError, setWorkflowsError] = useState<string | null>(null);
-
-    const [recentRuns, setRecentRuns] = useState<any[]>([]);
-    const [runsLoading, setRunsLoading] = useState(false);
-    const [runsError, setRunsError] = useState<string | null>(null);
-
+    // Data Fetching
     async function fetchWorkflows() {
         try {
-            setWorkflowsError(null);
-            setWorkflowsLoading(true);
-
             const res = await fetch(`${API}/api/workflows`);
             const data = await res.json();
-
-            if (!res.ok || data.status !== "success") {
-                throw new Error(data.message || "Failed to fetch workflows");
+            if (data.status === "success") {
+                setWorkflows(data.workflows || []);
             }
-
-            setWorkflows(data.workflows || []);
-        } catch (e: any) {
-            setWorkflowsError(e?.message || String(e));
-        } finally {
-            setWorkflowsLoading(false);
+        } catch (e) {
+            console.error("Failed to fetch workflows", e);
         }
     }
 
     async function fetchRecentRuns() {
         try {
-            setRunsError(null);
-            setRunsLoading(true);
-
             const res = await fetch(`${API}/api/run-history`);
             const data = await res.json();
-
-            if (!res.ok || data.status !== "success") {
-                throw new Error(data.message || "Failed to fetch run history");
+            if (data.status === "success") {
+                // Determine success/fail for logs if needed, for now just passing raw
+                setRecentRuns(data.history || []);
             }
-
-            // limit to 10 runs but can be more (up to 50)
-            setRecentRuns(data.history.slice(0, 10) || []);
-            // setRecentRuns(data.history || []);
-
-        } catch (e: any) {
-            setRunsError(e?.message || String(e));
-        } finally {
-            setRunsLoading(false);
+        } catch (e) {
+            console.error("Failed to fetch runs", e);
         }
     }
 
-
+    // Initial Load
     useEffect(() => {
         fetchWorkflows();
         fetchRecentRuns();
+
+        // Poll for runs every 10s if history panel is open? 
+        // Or just let user refresh. Let's start with fetch on mount.
     }, []);
 
-    async function handleSubmit(e: React.FormEvent) {
-        e.preventDefault();
-        setError(null);
 
+    // We need command state here to pass to HomeView
+    const [command, setCommand] = useState("");
+
+    async function handleNewCommand(e: React.FormEvent) {
+        e.preventDefault();
         const trimmed = command.trim();
-        if (!trimmed) {
-            setError("Please enter a command");
-            return;
-        }
+        if (!trimmed) return;
 
         try {
             setLoading(true);
+            setError(null);
+
             const res = await fetch(`${API}/api/plan-workflow`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -90,276 +80,112 @@ export default function Dashboard() {
                 throw new Error(data.message || "Failed to plan workflow");
             }
 
+            // Success! 
+            setCommand("");
+            await fetchWorkflows(); // Refresh list to see new workflow
+
+            // Optionally select the new workflow if ID is returned
+            if (data.workflow_id) {
+                setSelectedWorkflowId(data.workflow_id);
+            } else {
+                // If API doesn't return ID, we could guess it's the last one, 
+                // or just let user find it. 
+                // The current backend might NOT return workflow_id in plan-workflow response.
+                // We'll leave it on HomeView for now, or just refresh sidebar.
+            }
+
         } catch (err: any) {
-            // console.error(err);
-            alert(err?.message || String(err));
-            setError(err?.message || String(err));
+            setError(err?.message || "Something went wrong");
         } finally {
             setLoading(false);
         }
     }
 
-    // Editing state
-    const [editingId, setEditingId] = useState<string | null>(null);
-    const [editName, setEditName] = useState("");
-    const [editHotkey, setEditHotkey] = useState<{ mods: string[]; key: string }>({
-        mods: [],
-        key: "",
-    });
-
-    async function handleSaveEdit(id: string) {
+    async function handleUpdateWorkflow(id: string, updatedData: any) {
         try {
-            setWorkflowsLoading(true);
+            // Optimistic update
+            setWorkflows(prev => prev.map(w => w.id === id ? updatedData : w));
+
             const res = await fetch(`${API}/api/update-workflow`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    id,
-                    name: editName,
-                    hotkey: editHotkey,
-                }),
+                body: JSON.stringify(updatedData),
             });
             const data = await res.json();
             if (data.status !== "success") {
-                throw new Error(data.message || "Failed to update workflow");
+                throw new Error(data.message);
             }
-            setEditingId(null);
-            await fetchWorkflows(); // refresh list
         } catch (e: any) {
-            alert(e?.message || String(e));
-            setWorkflowsError(e?.message || String(e));
-        } finally {
-            setWorkflowsLoading(false);
+            alert("Failed to save: " + e.message);
+            fetchWorkflows(); // Revert
         }
     }
 
-    function startEditing(workflow: any) {
-        setEditingId(workflow.id);
-        setEditName(workflow.name || "");
-        setEditHotkey(
-            workflow.hotkey || { mods: ["cmd", "alt"], key: "" }
-        );
-    }
+    async function handleDeleteWorkflow(id: string) {
+        if (!confirm("Are you sure you want to delete this chat?")) return;
 
-    async function handleDelete(id: string) {
         try {
-            setWorkflowsError(null);
-            setWorkflowsLoading(true);
-
-            const result = await fetch(`${API}/api/delete-workflow/${id}`, {
-                method: "DELETE",
+            const res = await fetch(`${API}/api/delete-workflow/${id}`, {
+                method: "DELETE"
             });
-            const data = await result.json();
-            if (data.status !== "success") {
-                throw new Error(data.message || "Failed to delete workflow");
+            const data = await res.json();
+            if (data.status === "success") {
+                if (selectedWorkflowId === id) setSelectedWorkflowId(null);
+                fetchWorkflows();
             }
-            await fetchWorkflows();
-        } catch (e: any) {
-            setWorkflowsError(e?.message || String(e));
-        } finally {
-            setWorkflowsLoading(false);
+        } catch (e) {
+            alert("Failed to delete");
         }
     }
 
+    // Derived State
+    const selectedWorkflow = workflows.find(w => w.id === selectedWorkflowId);
 
     return (
-        <main>
-            <form onSubmit={handleSubmit}>
-                <h1>Input a command</h1>
-                <input
-                    type="text"
-                    placeholder="Type your command here..."
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    disabled={loading}
-                />
-                <button type="submit" disabled={loading || !command.trim()}>
-                    {loading ? "Working…" : "Submit"}
-                </button>
-                {error && <p>{error}</p>}
-            </form>
+        <div className="app-container">
+            <Sidebar
+                workflows={workflows}
+                selectedId={selectedWorkflowId}
+                onSelectWorkflow={setSelectedWorkflowId}
+                onNewChat={() => setSelectedWorkflowId(null)}
+            />
 
-            <section className="dashboard-section">
-                <div className="section-header">
-                    <h2 className="section-title">Saved workflows</h2>
-                    <button onClick={fetchWorkflows} disabled={workflowsLoading}>
-                        {workflowsLoading ? "Refreshing..." : "Refresh"}
+            <div className="main-area">
+                {/* Top Bar for Extra Actions */}
+                <div className="top-bar">
+                    <button
+                        className="history-toggle-btn"
+                        onClick={() => {
+                            setIsHistoryOpen(!isHistoryOpen);
+                            if (!isHistoryOpen) fetchRecentRuns();
+                        }}
+                    >
+                        {isHistoryOpen ? "Hide History" : "Show History"}
                     </button>
                 </div>
 
-                {workflowsError && (
-                    <p className="error-message">{workflowsError}</p>
+                {selectedWorkflow ? (
+                    <WorkflowDetail
+                        workflow={selectedWorkflow}
+                        onUpdate={handleUpdateWorkflow}
+                        onDelete={handleDeleteWorkflow}
+                    />
+                ) : (
+                    <HomeView
+                        command={command}
+                        setCommand={setCommand}
+                        loading={loading}
+                        onSubmit={handleNewCommand}
+                        error={error}
+                    />
                 )}
+            </div>
 
-                {workflows.length === 0 && !workflowsLoading && (
-                    <p className="list-empty">No workflows yet. Create one from the form above.</p>
-                )}
-
-                {workflows.length > 0 && (
-                    <ul className="dashboard-list">
-                        {workflows.map((workflow) => (
-                            <li key={workflow.id} className="list-item">
-                                {editingId === workflow.id ? (
-                                    <div className="edit-form-container">
-                                        {/* EDIT MODE */}
-                                        <input
-                                            type="text"
-                                            value={editName}
-                                            onChange={(e) => setEditName(e.target.value)}
-                                            placeholder="Workflow Name"
-                                            className="edit-input"
-                                        />
-
-                                        <div className="edit-hotkey-row">
-                                            <span style={{ opacity: 0.8 }}>Mods:</span>
-                                            {["cmd", "alt", "ctrl", "shift"].map((mod) => (
-                                                <label key={mod} className="edit-label">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={editHotkey.mods.includes(mod)}
-                                                        onChange={(e) => {
-                                                            setEditHotkey(prev => {
-                                                                const newMods = e.target.checked
-                                                                    ? [...prev.mods, mod]
-                                                                    : prev.mods.filter(m => m !== mod);
-                                                                return { ...prev, mods: newMods };
-                                                            });
-                                                        }}
-                                                    />
-                                                    {mod}
-                                                </label>
-                                            ))}
-
-                                            <span style={{ opacity: 0.8, marginLeft: "0.5rem" }}>Key:</span>
-                                            <input
-                                                type="text"
-                                                value={editHotkey.key}
-                                                onChange={(e) => setEditHotkey(prev => ({ ...prev, key: e.target.value.toUpperCase().slice(0, 1) }))}
-                                                className="edit-key-input"
-                                                maxLength={1}
-                                            />
-                                        </div>
-
-                                        <div className="edit-actions">
-                                            <button onClick={() => handleSaveEdit(workflow.id)} disabled={workflowsLoading}>Save</button>
-                                            <button onClick={() => setEditingId(null)} disabled={workflowsLoading}>Cancel</button>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <>
-                                        {/* DISPLAY MODE */}
-                                        <div className="item-header">
-                                            <div>
-                                                <div className="item-title">
-                                                    {workflow.name || "(unnamed workflow)"}
-                                                </div>
-
-                                                {workflow.hotkey && (
-                                                    <div className="item-subtitle">
-                                                        Hotkey:{" "}
-                                                        {workflow.hotkey.mods && workflow.hotkey.mods.length > 0
-                                                            ? workflow.hotkey.mods.join(" + ") + " + "
-                                                            : ""}
-                                                        {workflow.hotkey.key}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <div className="item-actions">
-                                                <button
-                                                    onClick={() => startEditing(workflow)}
-                                                    className="action-btn"
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(workflow.id)}
-                                                    className="action-btn"
-                                                >
-                                                    Delete
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        {workflow.steps && workflow.steps.length > 0 && (
-                                            <div className="steps-display">
-                                                <span style={{ opacity: 0.8 }}>Steps:</span>{" "}
-                                                {workflow.steps
-                                                    .map(
-                                                        (s: any) =>
-                                                            s.tool +
-                                                            (s.input && Object.keys(s.input).length > 0
-                                                                ? `(${JSON.stringify(s.input)})`
-                                                                : "")
-                                                    )
-                                                    .join(" → ")}
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </li>
-                        ))}
-
-                    </ul>
-                )}
-            </section>
-
-            <section className="dashboard-section">
-                <div className="section-header">
-                    <h2 className="section-title">Recent Runs</h2>
-                    <button onClick={fetchRecentRuns} disabled={runsLoading}>
-                        {runsLoading ? "Refreshing..." : "Refresh"}
-                    </button>
-                </div>
-
-                {runsError && (
-                    <p className="error-message">{runsError}</p>
-                )}
-
-                {recentRuns.length === 0 && !runsLoading && (
-                    <p className="list-empty">No runs recorded yet.</p>
-                )}
-
-                {recentRuns.length > 0 && (
-                    <ul className="dashboard-list">
-                        {recentRuns.map((run) => (
-                            <li key={run.id} className="list-item">
-                                <div className="item-header">
-                                    <div className="item-title">
-                                        {run.workflow_name || "(unnamed)"}
-                                    </div>
-                                    <div className="item-meta">
-                                        {(() => {
-                                            const date = new Date(run.timestamp * 1000);
-                                            const today = new Date();
-                                            const isToday = date.getDate() === today.getDate() &&
-                                                date.getMonth() === today.getMonth() &&
-                                                date.getFullYear() === today.getFullYear();
-                                            return isToday ? date.toLocaleTimeString() : date.toLocaleString();
-                                        })()}
-                                    </div>
-                                </div>
-
-                                <div className="run-status">
-                                    Status: <span className={run.status === "success" ? "status-success" : "status-failure"}>{run.status}</span>
-                                </div>
-
-                                {run.results && (
-                                    <div className="run-results">
-                                        {run.results.map((r: any, idx: number) => (
-                                            <div key={idx} className="result-item">
-                                                <span style={{ fontWeight: 600 }}>{r.tool}:</span>{" "}
-                                                <span>{r.output || r.message || "(no output)"}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </section>
-
-        </main>
+            <HistoryPanel
+                isOpen={isHistoryOpen}
+                onClose={() => setIsHistoryOpen(false)}
+                runs={recentRuns}
+            />
+        </div>
     );
 }
