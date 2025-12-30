@@ -4,8 +4,10 @@ contextBridge.exposeInMainWorld('electron', {
   getRunHistory: () => ipcRenderer.invoke('get-run-history'),
   clearRunHistory: () => ipcRenderer.invoke('clear-run-history'),
   getWorkflows: () => ipcRenderer.invoke('get-workflows'),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   saveWorkflow: (workflow: any) => ipcRenderer.invoke('save-workflow', workflow),
   deleteWorkflow: (id: string) => ipcRenderer.invoke('delete-workflow', id),
+  planWorkflow: (command: string) => ipcRenderer.invoke('plan-workflow', command),
 })
 
 // --------- Expose some API to the Renderer process ---------

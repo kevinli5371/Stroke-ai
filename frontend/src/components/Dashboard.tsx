@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import "../styles/Dashboard.css";
 
-const API = "http://127.0.0.1:8000";
+import "../styles/Dashboard.css";
 
 export default function Dashboard() {
     const [command, setCommand] = useState("");      // your natural language command
@@ -9,10 +9,12 @@ export default function Dashboard() {
     const [error, setError] = useState<string | null>(null);
 
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [workflows, setWorkflows] = useState<any[]>([]);
     const [workflowsLoading, setWorkflowsLoading] = useState(false);
     const [workflowsError, setWorkflowsError] = useState<string | null>(null);
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [recentRuns, setRecentRuns] = useState<any[]>([]);
     const [runsLoading, setRunsLoading] = useState(false);
     const [runsError, setRunsError] = useState<string | null>(null);
@@ -72,15 +74,9 @@ export default function Dashboard() {
 
         try {
             setLoading(true);
-            const res = await fetch(`${API}/api/plan-workflow`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ command: trimmed }),
-            });
+            const data = await window.electron.planWorkflow(trimmed);
 
-            const data = await res.json();
-
-            if (!res.ok || data.status !== "success") {
+            if (data.status !== "success") {
                 throw new Error(data.message || "Failed to plan workflow");
             }
 
@@ -126,6 +122,7 @@ export default function Dashboard() {
         }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     function startEditing(workflow: any) {
         setEditingId(workflow.id);
         setEditName(workflow.name || "");
@@ -276,6 +273,7 @@ export default function Dashboard() {
                                                 <span style={{ opacity: 0.8 }}>Steps:</span>{" "}
                                                 {workflow.steps
                                                     .map(
+                                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                                         (s: any) =>
                                                             s.tool +
                                                             (s.input && Object.keys(s.input).length > 0
@@ -337,6 +335,7 @@ export default function Dashboard() {
                                 {
                                     run.results && (
                                         <div className="run-results">
+                                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                                             {run.results.map((r: any, idx: number) => (
                                                 <div key={idx} className="result-item">
                                                     <span style={{ fontWeight: 600 }}>{r.tool}:</span>{" "}

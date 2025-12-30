@@ -1,8 +1,19 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { app, BrowserWindow, screen, ipcMain, globalShortcut } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import http from 'node:http'
 import Store from 'electron-store'
+import OpenAI from 'openai'
+import dotenv from 'dotenv'
+
+// Load environment variables from the root .env file
+dotenv.config({ path: path.join(process.cwd(), '../.env') });
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || "YOUR_OPENAI_KEY_HERE",
+  dangerouslyAllowBrowser: true // This is main process, but explicit is fine
+});
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -183,6 +194,142 @@ app.on('activate', () => {
 app.whenReady().then(createWindows)
 
 // ----------------------------------------
+// LLM PLANNING & TRANSFORMATION
+// ----------------------------------------
+
+const WORKFLOW_PLANNER_PROMPT = `
+You are an automation planner for a macOS keyboard-shortcut agent.
+Given a natural language command, you respond with a JSON workflow.
+
+Device Context:
+You will receive a "context" JSON describing the user's environment and existing hotkeys.
+
+Tools Available (Client-Side Execution):
+1. "debug_log": { text: string }
+2. "open_url": { url: string }
+3. "wait": { seconds: float }
+4. "copy_selection": {} (Cmd+C)
+5. "paste_clipboard": {} (Cmd+V)
+6. "open_app": { name: string }
+7. "press_enter": {}
+8. "focus_url_bar": {} (Cmd+L)
+9. "append_to_clipboard": { text: string }
+10. "replace_clipboard": { text: string }
+11. "transform_clipboard": { instruction: string }
+   - Uses an LLM to rewrite/transform the clipboard content in-place.
+   - Use this for "rewrite this", "explain this", "tailor this prompt", "audit this code", OR "draft a reply to this".
+
+Usage Rules:
+- Return ONLY JSON.
+- Do NOT use reserved hotkeys. Check "reserved_hotkeys" in the context. If a conflict exists, choose a different key.
+- Prefer efficient tool chains.
+- CRITICAL: If the user wants to modify, explain, or generate text based on their selection, use "transform_clipboard" instead of opening a browser. It is much faster.
+
+ALWAYS respond with ONLY the JSON object. No backticks, no markdown, no explanation.
+
+Example 1: "Tailor this prompt for an LLM"
+{
+  "name": "Tailor prompt for LLM",
+  "hotkey": { "mods": ["cmd", "alt"], "key": "T" },
+  "steps": [
+    { "tool": "debug_log", "input": { "text": "Tailoring prompt..." } },
+    { "tool": "copy_selection", "input": {} },
+    { "tool": "wait", "input": { "seconds": 0.2 } },
+    { "tool": "transform_clipboard", "input": { "instruction": "Refine this text to be a high-quality, precise LLM prompt." } },
+    { "tool": "wait", "input": { "seconds": 0.2 } },
+    { "tool": "paste_clipboard", "input": {} }
+  ]
+}
+
+Example 2: "Draft a polite reply to this email"
+{
+  "name": "Draft polite reply",
+  "hotkey": { "mods": ["cmd", "alt"], "key": "R" },
+  "steps": [
+    { "tool": "debug_log", "input": { "text": "Drafting reply..." } },
+    { "tool": "copy_selection", "input": {} },
+    { "tool": "wait", "input": { "seconds": 0.3 } },
+    { "tool": "transform_clipboard", "input": { "instruction": "Write a short, polite reply to this email." } },
+    { "tool": "wait", "input": { "seconds": 0.3 } },
+    { "tool": "paste_clipboard", "input": {} }
+  ]
+}
+`;
+
+function buildContextLayer(): any {
+  const workflows = workflowStore.get("workflows", []);
+
+  const existing = workflows.map(w => ({
+    id: w.id,
+    name: w.name,
+    hotkey: w.hotkey
+  }));
+
+  const reserved = workflows
+    .map(w => w.hotkey)
+    .filter(h => h !== undefined);
+
+  return {
+    environment: {
+      os: "macOS",
+      default_browser: "Google Chrome",
+    },
+    preferences: {
+      default_hotkey_mods: ["cmd", "alt"],
+      chatgpt_url: "https://chatgpt.com",
+      default_wait_seconds: 0.4,
+    },
+    existing_workflows: existing,
+    reserved_hotkeys: reserved
+  };
+}
+
+async function planWorkflow(command: string): Promise<any> {
+  const context = buildContextLayer();
+  const contextJson = JSON.stringify(context, null, 2);
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: WORKFLOW_PLANNER_PROMPT },
+      { role: "system", content: `Context:\n${contextJson}` },
+      { role: "user", content: command },
+    ],
+    response_format: { type: "json_object" }
+  });
+
+  const content = completion.choices[0].message.content || "{}";
+  try {
+    const plan = JSON.parse(content);
+    if (!plan.steps) throw new Error("No steps generated");
+
+    // Assign ID
+    plan.id = crypto.randomUUID();
+    if (!plan.name) plan.name = command.slice(0, 50);
+
+    // Auto-save? The server.py did. But let's just return it for now, 
+    // as the Dashboard "Save" button triggers the save.
+    // Actually server.py said: WORKFLOWS[workflow_id] = workflow; save_workflows();
+    // But the Dashboard seems to call saveWorkflow immediately if data.workflow exists.
+    // Let's just return the object.
+    return plan;
+  } catch (e) {
+    throw new Error("Failed to parse LLM plan: " + e);
+  }
+}
+
+async function transformText(text: string, instruction: string): Promise<string> {
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: "You are a helpful text transformation assistant. Return ONLY the transformed text. No explanation." },
+      { role: "user", content: `Instruction: ${instruction}\n\nInput Text:\n${text}` }
+    ]
+  });
+  return completion.choices[0].message.content || "";
+}
+
+// ----------------------------------------
 // RUN HISTORY STORE
 // ----------------------------------------
 interface Workflow {
@@ -201,7 +348,6 @@ interface RunLog {
   workflowName: string;
   timestamp: number;
   status: 'success' | 'error';
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   results?: any[];
 }
 
@@ -243,6 +389,16 @@ ipcMain.handle("delete-workflow", (_event, id: string) => {
   return { status: "success" };
 });
 
+ipcMain.handle("plan-workflow", async (_event, command: string) => {
+  try {
+    const plan = await planWorkflow(command);
+    return { status: "success", workflow: plan };
+  } catch (e: any) {
+    console.error("Planning failed:", e);
+    return { status: "error", message: e.message };
+  }
+});
+
 function refreshRegistryAndHotkeys() {
   const workflows = workflowStore.get("workflows", []);
   console.log(`[Workflows] Reloading ${workflows.length} workflows...`);
@@ -253,7 +409,7 @@ function refreshRegistryAndHotkeys() {
 
   // Register new
   workflows.forEach(wf => {
-    WORKFLOW_REGISTRY.set(wf.id, wf);
+    WORKFLOW_REGISTRY.set(wf.id, wf as any);
 
     if (wf.hotkey && wf.hotkey.key) {
       const mods = wf.hotkey.mods || [];
@@ -301,7 +457,8 @@ function execAppleScript(script: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const escapedScript = script.replace(/'/g, "'\\''");
     const command = `osascript -e '${escapedScript}'`;
-    exec(command, (error, stdout, _stderr) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    exec(command, (error, stdout, __stderr) => {
       if (error) {
         reject(error);
         return;
@@ -316,7 +473,7 @@ function wait(seconds: number): Promise<void> {
 }
 
 // Map of ToolName -> Function
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 const TOOLS: Record<string, (input: any) => Promise<any>> = {
   "debug_log": async (input) => {
     console.log("[Tool:debug_log]", input.text);
@@ -405,19 +562,14 @@ const TOOLS: Record<string, (input: any) => Promise<any>> = {
       const originalText = clipboard.readText();
       if (!originalText) return { success: false, text: "Clipboard empty" };
 
-      // Call Cloud Brain API (Port 8000)
-      const res = await fetch(`http://127.0.0.1:8000/api/transform`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: originalText, instruction })
-      });
+      // Call Local LLM Logic
+      const result = await transformText(originalText, instruction);
 
-      const data = await res.json();
-      if (data.status === 'success' && data.result) {
-        clipboard.writeText(data.result);
+      if (result) {
+        clipboard.writeText(result);
         return { success: true, text: "Transformed clipboard" };
       } else {
-        return { success: false, text: data.message || "Unknown error" };
+        return { success: false, text: "No result from LLM" };
       }
     } catch (e) {
       console.error("Transform failed", e);
@@ -427,7 +579,7 @@ const TOOLS: Record<string, (input: any) => Promise<any>> = {
 };
 
 // Function to execute a full plan (list of steps)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 async function executePlan(steps: any[]) {
   console.log("--- Executing Plan ---");
   for (const step of steps) {
@@ -448,6 +600,7 @@ async function executePlan(steps: any[]) {
 // TODO: In the next step, we will wire up the Global Hotkey listener.
 
 
+/* eslint-disable @typescript-eslint/no-unused-vars */
 // Active App Detection
 async function getActiveAppName(): Promise<string> {
   try {
@@ -463,7 +616,7 @@ async function getActiveAppName(): Promise<string> {
 // ----------------------------------------
 
 // Cache workflows here so we can execute them immediately
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 const WORKFLOW_REGISTRY = new Map<string, any>();
 
 async function triggerWorkflow(workflowId: string, workflowName: string) {

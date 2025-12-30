@@ -1,9 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface ElectronAPI {
     getRunHistory: () => Promise<any[]>;
     clearRunHistory: () => Promise<boolean>;
     getWorkflows: () => Promise<any[]>;
     saveWorkflow: (workflow: any) => Promise<{ status: string }>;
     deleteWorkflow: (id: string) => Promise<{ status: string }>;
+    planWorkflow: (command: string) => Promise<{ status: string; workflow?: any; message?: string }>;
 }
 
 declare global {
