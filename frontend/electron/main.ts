@@ -181,3 +181,251 @@ app.on('activate', () => {
 
 app.whenReady().then(createWindows)
 
+// ----------------------------------------
+// LOCAL HANDS IMPLEMENTATION
+// ----------------------------------------
+
+import { exec } from 'node:child_process'
+import { shell, clipboard } from 'electron'
+
+function execAppleScript(script: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const escapedScript = script.replace(/'/g, "'\\''");
+    const command = `osascript -e '${escapedScript}'`;
+    exec(command, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(stdout.trim());
+    });
+  });
+}
+
+function wait(seconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+}
+
+// Map of ToolName -> Function
+const TOOLS: Record<string, (input: any) => Promise<any>> = {
+  "debug_log": async (input) => {
+    console.log("[Tool:debug_log]", input.text);
+    return { success: true, text: input.text };
+  },
+  "wait": async (input) => {
+    const seconds = Number(input.seconds) || 1;
+    console.log(`[Tool:wait] Sleeping ${seconds}s`);
+    await wait(seconds);
+    return { success: true };
+  },
+  "open_url": async (input) => {
+    const url = input.url;
+    if (url) {
+      console.log(`[Tool:open_url] Opening ${url}`);
+      await shell.openExternal(url);
+      return { success: true };
+    }
+    return { success: false, text: "No URL" };
+  },
+  "open_app": async (input) => {
+    const name = input.name;
+    if (!name) return { success: false, text: "No app name" };
+    console.log(`[Tool:open_app] Activating ${name}`);
+    try {
+      await execAppleScript(`tell application "${name}" to activate`);
+      return { success: true };
+    } catch (e) {
+      return { success: false, text: String(e) };
+    }
+  },
+  "copy_selection": async () => {
+    console.log("[Tool:copy_selection] Cmd+C");
+    try {
+      // Clear clipboard first to ensure we catch new copy? 
+      // Or just copy.
+      await execAppleScript(`tell application "System Events" to keystroke "c" using command down`);
+      return { success: true };
+    } catch (e) {
+      return { success: false, text: String(e) };
+    }
+  },
+  "paste_clipboard": async () => {
+    console.log("[Tool:paste_clipboard] Cmd+V");
+    try {
+      await execAppleScript(`tell application "System Events" to keystroke "v" using command down`);
+      return { success: true };
+    } catch (e) {
+      return { success: false, text: String(e) };
+    }
+  },
+  "press_enter": async () => {
+    console.log("[Tool:press_enter]");
+    try {
+      await execAppleScript(`tell application "System Events" to key code 36`);
+      return { success: true };
+    } catch (e) {
+      return { success: false, text: String(e) };
+    }
+  },
+  "focus_url_bar": async () => {
+    console.log("[Tool:focus_url_bar]");
+    try {
+      await execAppleScript(`tell application "System Events" to keystroke "l" using command down`);
+      return { success: true };
+    } catch (e) {
+      return { success: false, text: String(e) };
+    }
+  },
+  "append_to_clipboard": async (input) => {
+    const text = input.text || "";
+    const current = clipboard.readText();
+    clipboard.writeText(current + "\n" + text);
+    return { success: true };
+  },
+  "replace_clipboard": async (input) => {
+    const text = input.text || "";
+    clipboard.writeText(text);
+    return { success: true };
+  },
+  "transform_clipboard": async (input) => {
+    const instruction = input.instruction || "Improve this text";
+    console.log(`[Tool:transform_clipboard] ${instruction}`);
+
+    try {
+      const originalText = clipboard.readText();
+      if (!originalText) return { success: false, text: "Clipboard empty" };
+
+      // Call Cloud Brain API (Port 8000)
+      const res = await fetch(`http://127.0.0.1:8000/api/transform`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: originalText, instruction })
+      });
+
+      const data = await res.json();
+      if (data.status === 'success' && data.result) {
+        clipboard.writeText(data.result);
+        return { success: true, text: "Transformed clipboard" };
+      } else {
+        return { success: false, text: data.message || "Unknown error" };
+      }
+    } catch (e) {
+      console.error("Transform failed", e);
+      return { success: false, text: String(e) };
+    }
+  }
+};
+
+// Function to execute a full plan (list of steps)
+async function executePlan(steps: any[]) {
+  console.log("--- Executing Plan ---");
+  for (const step of steps) {
+    const toolFn = TOOLS[step.tool];
+    if (toolFn) {
+      try {
+        await toolFn(step.input || {});
+      } catch (e) {
+        console.error(`Error executing ${step.tool}:`, e);
+      }
+    } else {
+      console.warn(`Unknown tool: ${step.tool}`);
+    }
+  }
+  console.log("--- Plan Complete ---");
+}
+
+// TODO: In the next step, we will wire up the Global Hotkey listener.
+
+import { globalShortcut } from 'electron'
+
+// Active App Detection
+async function getActiveAppName(): Promise<string> {
+  try {
+    return await execAppleScript('tell application "System Events" to get name of first application process whose frontmost is true');
+  } catch (e) {
+    console.error("Failed to get active app:", e);
+    return "Unknown";
+  }
+}
+
+// ----------------------------------------
+// WORKFLOW TRIGGER LOGIC
+// ----------------------------------------
+
+// Cache workflows here so we can execute them immediately
+const WORKFLOW_REGISTRY = new Map<string, any>();
+
+async function triggerWorkflow(workflowId: string, workflowName: string) {
+  console.log(`[Trigger] Workflow ${workflowId} (${workflowName}) triggered`);
+
+  const workflow = WORKFLOW_REGISTRY.get(workflowId);
+  if (!workflow) {
+    console.error(`[Trigger] Workflow ${workflowId} not found in registry`);
+    return;
+  }
+
+  // 1. Capture Context
+  const activeApp = await getActiveAppName();
+  const clipboardText = clipboard.readText();
+
+  console.log(`[Context] App: ${activeApp}, Clipboard: ${clipboardText.slice(0, 20)}...`);
+
+  // 2. Notify User (Overlay)
+  if (overlayWin && !overlayWin.isDestroyed()) {
+    overlayWin.webContents.send('trigger', {
+      message: `Running: ${workflowName}`,
+      hotkey: workflow.hotkey
+    });
+  }
+
+  // 3. Execute Steps (Local Hand)
+  if (workflow.steps && workflow.steps.length > 0) {
+    await executePlan(workflow.steps);
+  } else {
+    console.log("[Trigger] No steps to execute.");
+  }
+}
+
+// IPC to receive hotkey updates from Renderer (React)
+import { ipcMain } from 'electron'
+
+ipcMain.on('update-hotkeys', (_event, workflows: any[]) => {
+  console.log(`[Hotkeys] Received ${workflows.length} workflows. Updating global shortcuts...`);
+  globalShortcut.unregisterAll();
+  WORKFLOW_REGISTRY.clear();
+
+  workflows.forEach(wf => {
+    // Cache it
+    WORKFLOW_REGISTRY.set(wf.id, wf);
+
+    if (wf.hotkey && wf.hotkey.key) {
+      const mods = wf.hotkey.mods || []; // e.g. ["cmd", "alt"]
+      if (mods.length === 0) return;
+
+      // Electron accelerator format: "CommandOrControl+Alt+G"
+      const mapMod = (m: string) => {
+        if (m === "cmd") return "Command";
+        if (m === "alt") return "Alt";
+        if (m === "ctrl") return "Control";
+        if (m === "shift") return "Shift";
+        return m;
+      };
+
+      const accelerator = [...mods.map(mapMod), wf.hotkey.key].join("+");
+
+      try {
+        const success = globalShortcut.register(accelerator, () => {
+          triggerWorkflow(wf.id, wf.name);
+        });
+        if (!success) {
+          console.warn(`[Hotkeys] Failed to register ${accelerator}`);
+        } else {
+          console.log(`[Hotkeys] Registered ${accelerator} for ${wf.name}`);
+        }
+      } catch (err) {
+        console.error(`[Hotkeys] Error registering ${accelerator}:`, err);
+      }
+    }
+  });
+});
+

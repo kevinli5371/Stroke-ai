@@ -29,7 +29,16 @@ export default function Dashboard() {
                 throw new Error(data.message || "Failed to fetch workflows");
             }
 
-            setWorkflows(data.workflows || []);
+            const wfs = data.workflows || [];
+            setWorkflows(wfs);
+
+            // SYNC WITH ELECTRON (Replace Hammerspoon)
+            // @ts-ignore
+            if (window.ipcRenderer) {
+                // @ts-ignore
+                window.ipcRenderer.send("update-hotkeys", wfs);
+            }
+
         } catch (e: any) {
             setWorkflowsError(e?.message || String(e));
         } finally {
