@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
+import Settings from "./Settings";
 import "../styles/Dashboard.css";
-
-import "../styles/Dashboard.css";
+import "../styles/DashboardHeader.css";
 
 export default function Dashboard() {
     const [command, setCommand] = useState("");      // your natural language command
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showSettings, setShowSettings] = useState(false);
 
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -60,6 +61,19 @@ export default function Dashboard() {
     useEffect(() => {
         fetchWorkflows();
         fetchRecentRuns();
+
+        // Listen for real-time updates
+        if (window.ipcRenderer) {
+            window.ipcRenderer.on('run-history-updated', () => {
+                fetchRecentRuns();
+            });
+        }
+
+        return () => {
+            if (window.ipcRenderer) {
+                window.ipcRenderer.removeAllListeners('run-history-updated');
+            }
+        };
     }, []);
 
     async function handleSubmit(e: React.FormEvent) {
@@ -151,206 +165,220 @@ export default function Dashboard() {
 
     return (
         <main>
-            <form onSubmit={handleSubmit}>
-                <h1>Input a command</h1>
-                <input
-                    type="text"
-                    placeholder="Type your command here..."
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    disabled={loading}
-                />
-                <button type="submit" disabled={loading || !command.trim()}>
-                    {loading ? "Working…" : "Submit"}
-                </button>
-                {error && <p>{error}</p>}
-            </form>
+            {showSettings ? (
+                <Settings onBack={() => setShowSettings(false)} />
+            ) : (
+                <>
+                    <form onSubmit={handleSubmit}>
+                        <div className="form-header">
+                            <h1>Input a command</h1>
+                            <button
+                                type="button"
+                                className="settings-link-btn"
+                                onClick={() => setShowSettings(true)}
+                            >
+                                Settings
+                            </button>
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Type your command here..."
+                            value={command}
+                            onChange={(e) => setCommand(e.target.value)}
+                            disabled={loading}
+                        />
+                        <button type="submit" disabled={loading || !command.trim()}>
+                            {loading ? "Working…" : "Submit"}
+                        </button>
+                        {error && <p>{error}</p>}
+                    </form>
 
-            <section className="dashboard-section">
-                <div className="section-header">
-                    <h2 className="section-title">Saved workflows</h2>
-                    <button onClick={fetchWorkflows} disabled={workflowsLoading}>
-                        {workflowsLoading ? "Refreshing..." : "Refresh"}
-                    </button>
-                </div>
+                    <section className="dashboard-section">
+                        <div className="section-header">
+                            <h2 className="section-title">Saved workflows</h2>
+                            {/* <button onClick={fetchWorkflows} disabled={workflowsLoading}>
+                                {workflowsLoading ? "Refreshing..." : "Refresh"}
+                            </button> */}
+                        </div>
 
-                {workflowsError && (
-                    <p className="error-message">{workflowsError}</p>
-                )}
+                        {workflowsError && (
+                            <p className="error-message">{workflowsError}</p>
+                        )}
 
-                {workflows.length === 0 && !workflowsLoading && (
-                    <p className="list-empty">No workflows yet. Create one from the form above.</p>
-                )}
+                        {workflows.length === 0 && !workflowsLoading && (
+                            <p className="list-empty">No workflows yet. Create one from the form above.</p>
+                        )}
 
-                {workflows.length > 0 && (
-                    <ul className="dashboard-list">
-                        {workflows.map((workflow) => (
-                            <li key={workflow.id} className="list-item">
-                                {editingId === workflow.id ? (
-                                    <div className="edit-form-container">
-                                        {/* EDIT MODE */}
-                                        <input
-                                            type="text"
-                                            value={editName}
-                                            onChange={(e) => setEditName(e.target.value)}
-                                            placeholder="Workflow Name"
-                                            className="edit-input"
-                                        />
+                        {workflows.length > 0 && (
+                            <ul className="dashboard-list">
+                                {workflows.map((workflow) => (
+                                    <li key={workflow.id} className="list-item">
+                                        {editingId === workflow.id ? (
+                                            <div className="edit-form-container">
+                                                {/* EDIT MODE */}
+                                                <input
+                                                    type="text"
+                                                    value={editName}
+                                                    onChange={(e) => setEditName(e.target.value)}
+                                                    placeholder="Workflow Name"
+                                                    className="edit-input"
+                                                />
 
-                                        <div className="edit-hotkey-row">
-                                            <span style={{ opacity: 0.8 }}>Mods:</span>
-                                            {["cmd", "alt", "ctrl", "shift"].map((mod) => (
-                                                <label key={mod} className="edit-label">
+                                                <div className="edit-hotkey-row">
+                                                    <span style={{ opacity: 0.8 }}>Mods:</span>
+                                                    {["cmd", "alt", "ctrl", "shift"].map((mod) => (
+                                                        <label key={mod} className="edit-label">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={editHotkey.mods.includes(mod)}
+                                                                onChange={(e) => {
+                                                                    setEditHotkey(prev => {
+                                                                        const newMods = e.target.checked
+                                                                            ? [...prev.mods, mod]
+                                                                            : prev.mods.filter(m => m !== mod);
+                                                                        return { ...prev, mods: newMods };
+                                                                    });
+                                                                }}
+                                                            />
+                                                            {mod}
+                                                        </label>
+                                                    ))}
+
+                                                    <span style={{ opacity: 0.8, marginLeft: "0.5rem" }}>Key:</span>
                                                     <input
-                                                        type="checkbox"
-                                                        checked={editHotkey.mods.includes(mod)}
-                                                        onChange={(e) => {
-                                                            setEditHotkey(prev => {
-                                                                const newMods = e.target.checked
-                                                                    ? [...prev.mods, mod]
-                                                                    : prev.mods.filter(m => m !== mod);
-                                                                return { ...prev, mods: newMods };
-                                                            });
-                                                        }}
+                                                        type="text"
+                                                        value={editHotkey.key}
+                                                        onChange={(e) => setEditHotkey(prev => ({ ...prev, key: e.target.value.toUpperCase().slice(0, 1) }))}
+                                                        className="edit-key-input"
+                                                        maxLength={1}
                                                     />
-                                                    {mod}
-                                                </label>
-                                            ))}
-
-                                            <span style={{ opacity: 0.8, marginLeft: "0.5rem" }}>Key:</span>
-                                            <input
-                                                type="text"
-                                                value={editHotkey.key}
-                                                onChange={(e) => setEditHotkey(prev => ({ ...prev, key: e.target.value.toUpperCase().slice(0, 1) }))}
-                                                className="edit-key-input"
-                                                maxLength={1}
-                                            />
-                                        </div>
-
-                                        <div className="edit-actions">
-                                            <button onClick={() => handleSaveEdit(workflow.id)} disabled={workflowsLoading}>Save</button>
-                                            <button onClick={() => setEditingId(null)} disabled={workflowsLoading}>Cancel</button>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <>
-                                        {/* DISPLAY MODE */}
-                                        <div className="item-header">
-                                            <div>
-                                                <div className="item-title">
-                                                    {workflow.name || "(unnamed workflow)"}
                                                 </div>
 
-                                                {workflow.hotkey && (
-                                                    <div className="item-subtitle">
-                                                        Hotkey:{" "}
-                                                        {workflow.hotkey.mods && workflow.hotkey.mods.length > 0
-                                                            ? workflow.hotkey.mods.join(" + ") + " + "
-                                                            : ""}
-                                                        {workflow.hotkey.key}
+                                                <div className="edit-actions">
+                                                    <button onClick={() => handleSaveEdit(workflow.id)} disabled={workflowsLoading}>Save</button>
+                                                    <button onClick={() => setEditingId(null)} disabled={workflowsLoading}>Cancel</button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {/* DISPLAY MODE */}
+                                                <div className="item-header">
+                                                    <div>
+                                                        <div className="item-title">
+                                                            {workflow.name || "(unnamed workflow)"}
+                                                        </div>
+
+                                                        {workflow.hotkey && (
+                                                            <div className="item-subtitle">
+                                                                Hotkey:{" "}
+                                                                {workflow.hotkey.mods && workflow.hotkey.mods.length > 0
+                                                                    ? workflow.hotkey.mods.join(" + ") + " + "
+                                                                    : ""}
+                                                                {workflow.hotkey.key}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="item-actions">
+                                                        <button
+                                                            onClick={() => startEditing(workflow)}
+                                                            className="action-btn"
+                                                        >
+                                                            Edit
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDelete(workflow.id)}
+                                                            className="action-btn"
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {workflow.steps && workflow.steps.length > 0 && (
+                                                    <div className="steps-display">
+                                                        <span style={{ opacity: 0.8 }}>Steps:</span>{" "}
+                                                        {workflow.steps
+                                                            .map(
+                                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                                                (s: any) =>
+                                                                    s.tool +
+                                                                    (s.input && Object.keys(s.input).length > 0
+                                                                        ? `(${JSON.stringify(s.input)})`
+                                                                        : "")
+                                                            )
+                                                            .join(" → ")}
                                                     </div>
                                                 )}
-                                            </div>
-
-                                            <div className="item-actions">
-                                                <button
-                                                    onClick={() => startEditing(workflow)}
-                                                    className="action-btn"
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDelete(workflow.id)}
-                                                    className="action-btn"
-                                                >
-                                                    Delete
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        {workflow.steps && workflow.steps.length > 0 && (
-                                            <div className="steps-display">
-                                                <span style={{ opacity: 0.8 }}>Steps:</span>{" "}
-                                                {workflow.steps
-                                                    .map(
-                                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                                        (s: any) =>
-                                                            s.tool +
-                                                            (s.input && Object.keys(s.input).length > 0
-                                                                ? `(${JSON.stringify(s.input)})`
-                                                                : "")
-                                                    )
-                                                    .join(" → ")}
-                                            </div>
+                                            </>
                                         )}
-                                    </>
-                                )}
-                            </li>
-                        ))}
+                                    </li>
+                                ))}
 
-                    </ul>
-                )}
-            </section>
+                            </ul>
+                        )}
+                    </section>
 
-            <section className="dashboard-section">
-                <div className="section-header">
-                    <h2 className="section-title">Recent Runs</h2>
-                    <button onClick={fetchRecentRuns} disabled={runsLoading}>
-                        {runsLoading ? "Refreshing..." : "Refresh"}
-                    </button>
-                </div>
+                    <section className="dashboard-section">
+                        <div className="section-header">
+                            <h2 className="section-title">Recent Runs</h2>
+                            {/* <button onClick={fetchRecentRuns} disabled={runsLoading}>
+                                {runsLoading ? "Refreshing..." : "Refresh"}
+                            </button> */}
+                        </div>
 
-                {runsError && (
-                    <p className="error-message">{runsError}</p>
-                )}
+                        {runsError && (
+                            <p className="error-message">{runsError}</p>
+                        )}
 
-                {recentRuns.length === 0 && !runsLoading && (
-                    <p className="list-empty">No runs recorded yet.</p>
-                )}
+                        {recentRuns.length === 0 && !runsLoading && (
+                            <p className="list-empty">No runs recorded yet.</p>
+                        )}
 
-                {recentRuns.length > 0 && (
-                    <ul className="dashboard-list">
-                        {recentRuns.map((run) => (
-                            <li key={run.id} className="list-item">
-                                <div className="item-header">
-                                    <div className="item-title">
-                                        {run.workflowName || "(unnamed)"}
-                                    </div>
-                                    <div className="item-meta">
-                                        {(() => {
-                                            const date = new Date(run.timestamp);
-                                            const today = new Date();
-                                            const isToday = date.getDate() === today.getDate() &&
-                                                date.getMonth() === today.getMonth() &&
-                                                date.getFullYear() === today.getFullYear();
-                                            return isToday ? "Today " + date.toLocaleTimeString() : date.toLocaleString();
-                                        })()}
-                                    </div>
-                                </div>
-
-                                <div className="run-status">
-                                    Status: <span className={run.status === "success" ? "status-success" : "status-failure"}>{run.status}</span>
-                                </div>
-
-                                {
-                                    run.results && (
-                                        <div className="run-results">
-                                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                                            {run.results.map((r: any, idx: number) => (
-                                                <div key={idx} className="result-item">
-                                                    <span style={{ fontWeight: 600 }}>{r.tool}:</span>{" "}
-                                                    <span>{r.output || r.message || "(no output)"}</span>
-                                                </div>
-                                            ))}
+                        {recentRuns.length > 0 && (
+                            <ul className="dashboard-list">
+                                {recentRuns.map((run) => (
+                                    <li key={run.id} className="list-item">
+                                        <div className="item-header">
+                                            <div className="item-title">
+                                                {run.workflowName || "(unnamed)"}
+                                            </div>
+                                            <div className="item-meta">
+                                                {(() => {
+                                                    const date = new Date(run.timestamp);
+                                                    const today = new Date();
+                                                    const isToday = date.getDate() === today.getDate() &&
+                                                        date.getMonth() === today.getMonth() &&
+                                                        date.getFullYear() === today.getFullYear();
+                                                    return isToday ? "Today " + date.toLocaleTimeString() : date.toLocaleString();
+                                                })()}
+                                            </div>
                                         </div>
-                                    )
-                                }
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </section>
 
+                                        <div className="run-status">
+                                            Status: <span className={run.status === "success" ? "status-success" : "status-failure"}>{run.status}</span>
+                                        </div>
+
+                                        {
+                                            run.results && (
+                                                <div className="run-results">
+                                                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                                                    {run.results.map((r: any, idx: number) => (
+                                                        <div key={idx} className="result-item">
+                                                            <span style={{ fontWeight: 600 }}>{r.tool}:</span>{" "}
+                                                            <span>{r.output || r.message || "(no output)"}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )
+                                        }
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </section>
+                </>
+            )}
         </main >
     );
 }

@@ -4,8 +4,13 @@ electron.contextBridge.exposeInMainWorld("electron", {
   getRunHistory: () => electron.ipcRenderer.invoke("get-run-history"),
   clearRunHistory: () => electron.ipcRenderer.invoke("clear-run-history"),
   getWorkflows: () => electron.ipcRenderer.invoke("get-workflows"),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   saveWorkflow: (workflow) => electron.ipcRenderer.invoke("save-workflow", workflow),
-  deleteWorkflow: (id) => electron.ipcRenderer.invoke("delete-workflow", id)
+  deleteWorkflow: (id) => electron.ipcRenderer.invoke("delete-workflow", id),
+  planWorkflow: (command) => electron.ipcRenderer.invoke("plan-workflow", command),
+  getPreferences: () => electron.ipcRenderer.invoke("get-preferences"),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  savePreferences: (prefs) => electron.ipcRenderer.invoke("save-preferences", prefs)
 });
 electron.contextBridge.exposeInMainWorld("ipcRenderer", {
   on(...args) {

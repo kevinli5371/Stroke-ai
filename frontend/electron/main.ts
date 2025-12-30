@@ -10,10 +10,30 @@ import dotenv from 'dotenv'
 // Load environment variables from the root .env file
 dotenv.config({ path: path.join(process.cwd(), '../.env') });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || "YOUR_OPENAI_KEY_HERE",
-  dangerouslyAllowBrowser: true // This is main process, but explicit is fine
-});
+
+// Dynamic OpenAI Client Wrapper
+// We need to re-instantiate or configure this when the key changes/is loaded.
+let openaiClient: OpenAI | null = null;
+
+function getOpenAI() {
+  const prefs = preferencesStore.get("preferences");
+  const apiKey = prefs.apiKey || process.env.OPENAI_API_KEY; // Fallback to env
+
+  if (!apiKey) {
+    throw new Error("No OpenAI API Key found. Please set it in Settings.");
+  }
+
+  // Should we cache this client? 
+  // For simplicity, let's create it if the key changed, or just return a new one for now (low overhead).
+  // Better: Cache it and invalidate if key changes.
+  if (!openaiClient || openaiClient.apiKey !== apiKey) {
+    openaiClient = new OpenAI({
+      apiKey: apiKey,
+      dangerouslyAllowBrowser: true
+    });
+  }
+  return openaiClient;
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -272,7 +292,7 @@ function buildContextLayer(): any {
   return {
     environment: {
       os: "macOS",
-      default_browser: "Google Chrome",
+      default_browser: preferencesStore.get("preferences").defaultBrowser || "Google Chrome",
     },
     preferences: {
       default_hotkey_mods: ["cmd", "alt"],
@@ -288,7 +308,8 @@ async function planWorkflow(command: string): Promise<any> {
   const context = buildContextLayer();
   const contextJson = JSON.stringify(context, null, 2);
 
-  const completion = await openai.chat.completions.create({
+  const client = getOpenAI();
+  const completion = await client.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: WORKFLOW_PLANNER_PROMPT },
@@ -319,7 +340,8 @@ async function planWorkflow(command: string): Promise<any> {
 }
 
 async function transformText(text: string, instruction: string): Promise<string> {
-  const completion = await openai.chat.completions.create({
+  const client = getOpenAI();
+  const completion = await client.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: "You are a helpful text transformation assistant. Return ONLY the transformed text. No explanation." },
@@ -359,6 +381,32 @@ const runHistoryStore = new Store<{ history: RunLog[] }>({
 const workflowStore = new Store<{ workflows: Workflow[] }>({
   name: "workflows",
   defaults: { workflows: [] }
+});
+
+interface Preferences {
+  apiKey: string;
+  defaultBrowser: string;
+}
+
+const preferencesStore = new Store<{ preferences: Preferences }>({
+  name: "preferences",
+  defaults: {
+    preferences: {
+      apiKey: "",
+      defaultBrowser: "Google Chrome"
+    }
+  }
+});
+
+ipcMain.handle("get-preferences", () => {
+  return preferencesStore.get("preferences");
+});
+
+ipcMain.handle("save-preferences", (_event, prefs: Preferences) => {
+  preferencesStore.set("preferences", prefs);
+  // Reset OpenAI client so next call picks up new key
+  openaiClient = null;
+  return { status: "success" };
 });
 
 ipcMain.handle("get-workflows", () => {
@@ -669,6 +717,11 @@ async function triggerWorkflow(workflowId: string, workflowName: string) {
   history.push(logEntry);
   if (history.length > 50) history.shift(); // Keep last 50
   runHistoryStore.set('history', history);
+
+  // 4. Notify Dashboard to refresh history
+  if (dashboardWin && !dashboardWin.isDestroyed()) {
+    dashboardWin.webContents.send('run-history-updated');
+  }
 }
 
 // IPC to receive hotkey updates from Renderer (React)

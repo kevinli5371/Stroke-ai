@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld('electron', {
   saveWorkflow: (workflow: any) => ipcRenderer.invoke('save-workflow', workflow),
   deleteWorkflow: (id: string) => ipcRenderer.invoke('delete-workflow', id),
   planWorkflow: (command: string) => ipcRenderer.invoke('plan-workflow', command),
+  getPreferences: () => ipcRenderer.invoke('get-preferences'),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  savePreferences: (prefs: any) => ipcRenderer.invoke('save-preferences', prefs),
 })
 
 // --------- Expose some API to the Renderer process ---------

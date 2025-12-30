@@ -6,6 +6,8 @@ export interface ElectronAPI {
     saveWorkflow: (workflow: any) => Promise<{ status: string }>;
     deleteWorkflow: (id: string) => Promise<{ status: string }>;
     planWorkflow: (command: string) => Promise<{ status: string; workflow?: any; message?: string }>;
+    getPreferences: () => Promise<{ apiKey: string; defaultBrowser: string }>;
+    savePreferences: (prefs: { apiKey: string; defaultBrowser: string }) => Promise<{ status: string }>;
 }
 
 declare global {
@@ -15,6 +17,7 @@ declare global {
             send: (channel: string, ...args: any[]) => void;
             on: (channel: string, func: (...args: any[]) => void) => void;
             invoke: (channel: string, ...args: any[]) => Promise<any>;
+            removeAllListeners: (channel: string) => void;
         };
     }
 }
