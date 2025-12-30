@@ -62,5 +62,30 @@
         }
       }
     ]
+  },
+  {
+    "id": "f9bb5004-da42-494d-938b-3bc787d14c6e",
+    "name": "Open Tetr.io",
+    "hotkey": {
+      "mods": [
+        "cmd",
+        "alt"
+      ],
+      "key": "O"
+    },
+    "steps": [
+      {
+        "tool": "debug_log",
+        "input": {
+          "text": "Opening Tetr.io..."
+        }
+      },
+      {
+        "tool": "open_url",
+        "input": {
+          "url": "https://tetr.io"
+        }
+      }
+    ]
   }
 ]

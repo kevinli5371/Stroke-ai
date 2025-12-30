@@ -1,5 +1,13 @@
 import { ipcRenderer, contextBridge } from 'electron'
 
+contextBridge.exposeInMainWorld('electron', {
+  getRunHistory: () => ipcRenderer.invoke('get-run-history'),
+  clearRunHistory: () => ipcRenderer.invoke('clear-run-history'),
+  getWorkflows: () => ipcRenderer.invoke('get-workflows'),
+  saveWorkflow: (workflow: any) => ipcRenderer.invoke('save-workflow', workflow),
+  deleteWorkflow: (id: string) => ipcRenderer.invoke('delete-workflow', id),
+})
+
 // --------- Expose some API to the Renderer process ---------
 contextBridge.exposeInMainWorld('ipcRenderer', {
   on(...args: Parameters<typeof ipcRenderer.on>) {

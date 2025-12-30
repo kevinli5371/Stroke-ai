@@ -1,7 +1,8 @@
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, screen, ipcMain, globalShortcut } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import http from 'node:http'
+import Store from 'electron-store'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -182,6 +183,114 @@ app.on('activate', () => {
 app.whenReady().then(createWindows)
 
 // ----------------------------------------
+// RUN HISTORY STORE
+// ----------------------------------------
+interface Workflow {
+  id: string;
+  name: string;
+  hotkey?: {
+    mods: string[];
+    key: string;
+  };
+  steps: any[];
+}
+
+interface RunLog {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  timestamp: number;
+  status: 'success' | 'error';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  results?: any[];
+}
+
+const runHistoryStore = new Store<{ history: RunLog[] }>({
+  name: 'run-history',
+  defaults: { history: [] }
+});
+
+const workflowStore = new Store<{ workflows: Workflow[] }>({
+  name: "workflows",
+  defaults: { workflows: [] }
+});
+
+ipcMain.handle("get-workflows", () => {
+  return workflowStore.get("workflows", []);
+});
+
+ipcMain.handle("save-workflow", (_event, workflow: Workflow) => {
+  const workflows = workflowStore.get("workflows", []);
+  const index = workflows.findIndex(w => w.id === workflow.id);
+
+  if (index >= 0) {
+    workflows[index] = workflow; // Update
+  } else {
+    workflows.push(workflow); // Create
+  }
+
+  workflowStore.set("workflows", workflows);
+  refreshRegistryAndHotkeys();
+  return { status: "success" };
+});
+
+ipcMain.handle("delete-workflow", (_event, id: string) => {
+  const workflows = workflowStore.get("workflows", []);
+  const filtered = workflows.filter(w => w.id !== id);
+
+  workflowStore.set("workflows", filtered);
+  refreshRegistryAndHotkeys();
+  return { status: "success" };
+});
+
+function refreshRegistryAndHotkeys() {
+  const workflows = workflowStore.get("workflows", []);
+  console.log(`[Workflows] Reloading ${workflows.length} workflows...`);
+
+  // Clear existing
+  WORKFLOW_REGISTRY.clear();
+  globalShortcut.unregisterAll();
+
+  // Register new
+  workflows.forEach(wf => {
+    WORKFLOW_REGISTRY.set(wf.id, wf);
+
+    if (wf.hotkey && wf.hotkey.key) {
+      const mods = wf.hotkey.mods || [];
+      if (mods.length === 0) return;
+
+      const mapMod = (m: string) => {
+        if (m === "cmd") return "Command";
+        if (m === "alt") return "Alt";
+        if (m === "ctrl") return "Control";
+        if (m === "shift") return "Shift";
+        return m;
+      };
+
+      const accelerator = [...mods.map(mapMod), wf.hotkey.key].join("+");
+
+      try {
+        globalShortcut.register(accelerator, () => {
+          triggerWorkflow(wf.id, wf.name);
+        });
+        console.log(`[Hotkeys] Registered ${accelerator} for ${wf.name}`);
+      } catch (err) {
+        console.error(`[Hotkeys] Error registering ${accelerator}:`, err);
+      }
+    }
+  });
+}
+
+ipcMain.handle('get-run-history', () => {
+  return runHistoryStore.get('history', []).reverse(); // Newest first
+});
+
+ipcMain.handle('clear-run-history', () => {
+  runHistoryStore.set('history', []);
+  return true;
+});
+
+// ----------------------------------------
 // LOCAL HANDS IMPLEMENTATION
 // ----------------------------------------
 
@@ -192,7 +301,7 @@ function execAppleScript(script: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const escapedScript = script.replace(/'/g, "'\\''");
     const command = `osascript -e '${escapedScript}'`;
-    exec(command, (error, stdout, stderr) => {
+    exec(command, (error, stdout, _stderr) => {
       if (error) {
         reject(error);
         return;
@@ -207,6 +316,7 @@ function wait(seconds: number): Promise<void> {
 }
 
 // Map of ToolName -> Function
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const TOOLS: Record<string, (input: any) => Promise<any>> = {
   "debug_log": async (input) => {
     console.log("[Tool:debug_log]", input.text);
@@ -317,6 +427,7 @@ const TOOLS: Record<string, (input: any) => Promise<any>> = {
 };
 
 // Function to execute a full plan (list of steps)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function executePlan(steps: any[]) {
   console.log("--- Executing Plan ---");
   for (const step of steps) {
@@ -336,7 +447,6 @@ async function executePlan(steps: any[]) {
 
 // TODO: In the next step, we will wire up the Global Hotkey listener.
 
-import { globalShortcut } from 'electron'
 
 // Active App Detection
 async function getActiveAppName(): Promise<string> {
@@ -353,6 +463,7 @@ async function getActiveAppName(): Promise<string> {
 // ----------------------------------------
 
 // Cache workflows here so we can execute them immediately
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const WORKFLOW_REGISTRY = new Map<string, any>();
 
 async function triggerWorkflow(workflowId: string, workflowName: string) {
@@ -364,13 +475,7 @@ async function triggerWorkflow(workflowId: string, workflowName: string) {
     return;
   }
 
-  // 1. Capture Context
-  const activeApp = await getActiveAppName();
-  const clipboardText = clipboard.readText();
-
-  console.log(`[Context] App: ${activeApp}, Clipboard: ${clipboardText.slice(0, 20)}...`);
-
-  // 2. Notify User (Overlay)
+  // 1. Notify User (Overlay)
   if (overlayWin && !overlayWin.isDestroyed()) {
     overlayWin.webContents.send('trigger', {
       message: `Running: ${workflowName}`,
@@ -378,54 +483,45 @@ async function triggerWorkflow(workflowId: string, workflowName: string) {
     });
   }
 
-  // 3. Execute Steps (Local Hand)
+  // 2. Execute Steps (Local Hand)
+  let status: 'success' | 'error' = 'success';
+  const results: unknown[] = [];
+
   if (workflow.steps && workflow.steps.length > 0) {
-    await executePlan(workflow.steps);
+    // Capture results from execution if possible? 
+    // executePlan currently logs but doesn't return results.
+    // For now, we assume success unless it throws?
+    // Let's wrap executePlan to be safe.
+    try {
+      await executePlan(workflow.steps);
+    } catch (e) {
+      status = 'error';
+      console.error("Workflow execution failed", e);
+    }
   } else {
     console.log("[Trigger] No steps to execute.");
   }
+
+  // 3. Log Run to History
+  const logEntry: RunLog = {
+    id: crypto.randomUUID(),
+    workflowId: workflowId,
+    workflowName: workflowName,
+    timestamp: Date.now(),
+    status: status,
+    results: results // Populating results would require refactoring executePlan
+  };
+
+  const history = runHistoryStore.get('history', []);
+  history.push(logEntry);
+  if (history.length > 50) history.shift(); // Keep last 50
+  runHistoryStore.set('history', history);
 }
 
 // IPC to receive hotkey updates from Renderer (React)
-import { ipcMain } from 'electron'
 
-ipcMain.on('update-hotkeys', (_event, workflows: any[]) => {
-  console.log(`[Hotkeys] Received ${workflows.length} workflows. Updating global shortcuts...`);
-  globalShortcut.unregisterAll();
-  WORKFLOW_REGISTRY.clear();
-
-  workflows.forEach(wf => {
-    // Cache it
-    WORKFLOW_REGISTRY.set(wf.id, wf);
-
-    if (wf.hotkey && wf.hotkey.key) {
-      const mods = wf.hotkey.mods || []; // e.g. ["cmd", "alt"]
-      if (mods.length === 0) return;
-
-      // Electron accelerator format: "CommandOrControl+Alt+G"
-      const mapMod = (m: string) => {
-        if (m === "cmd") return "Command";
-        if (m === "alt") return "Alt";
-        if (m === "ctrl") return "Control";
-        if (m === "shift") return "Shift";
-        return m;
-      };
-
-      const accelerator = [...mods.map(mapMod), wf.hotkey.key].join("+");
-
-      try {
-        const success = globalShortcut.register(accelerator, () => {
-          triggerWorkflow(wf.id, wf.name);
-        });
-        if (!success) {
-          console.warn(`[Hotkeys] Failed to register ${accelerator}`);
-        } else {
-          console.log(`[Hotkeys] Registered ${accelerator} for ${wf.name}`);
-        }
-      } catch (err) {
-        console.error(`[Hotkeys] Error registering ${accelerator}:`, err);
-      }
-    }
-  });
+// Initial Load
+app.whenReady().then(() => {
+  refreshRegistryAndHotkeys();
 });
 

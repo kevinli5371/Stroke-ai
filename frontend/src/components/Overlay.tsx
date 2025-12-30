@@ -19,7 +19,6 @@ export default function Overlay() {
         document.documentElement.style.overflow = "hidden";
 
         // Listen for trigger events
-        // @ts-ignore
         window.ipcRenderer?.on("trigger", (_event, payload) => {
             let textToShow = "";
             if (typeof payload === "string") {
@@ -44,7 +43,6 @@ export default function Overlay() {
         return () => {
             document.body.style.overflow = "auto";
             document.documentElement.style.overflow = "auto";
-            // @ts-ignore
             window.ipcRenderer?.removeAllListeners("trigger");
         };
     }, []);

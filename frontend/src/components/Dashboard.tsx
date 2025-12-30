@@ -22,25 +22,12 @@ export default function Dashboard() {
             setWorkflowsError(null);
             setWorkflowsLoading(true);
 
-            const res = await fetch(`${API}/api/workflows`);
-            const data = await res.json();
-
-            if (!res.ok || data.status !== "success") {
-                throw new Error(data.message || "Failed to fetch workflows");
-            }
-
-            const wfs = data.workflows || [];
+            const wfs = await window.electron.getWorkflows();
             setWorkflows(wfs);
 
-            // SYNC WITH ELECTRON (Replace Hammerspoon)
-            // @ts-ignore
-            if (window.ipcRenderer) {
-                // @ts-ignore
-                window.ipcRenderer.send("update-hotkeys", wfs);
-            }
-
-        } catch (e: any) {
-            setWorkflowsError(e?.message || String(e));
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            setWorkflowsError(msg);
         } finally {
             setWorkflowsLoading(false);
         }
@@ -51,19 +38,17 @@ export default function Dashboard() {
             setRunsError(null);
             setRunsLoading(true);
 
-            const res = await fetch(`${API}/api/run-history`);
-            const data = await res.json();
-
-            if (!res.ok || data.status !== "success") {
-                throw new Error(data.message || "Failed to fetch run history");
+            if (window.electron && window.electron.getRunHistory) {
+                const history = await window.electron.getRunHistory();
+                setRecentRuns(history || []);
+            } else {
+                console.warn("Electron API not available");
+                setRecentRuns([]);
             }
 
-            // limit to 10 runs but can be more (up to 50)
-            setRecentRuns(data.history.slice(0, 10) || []);
-            // setRecentRuns(data.history || []);
-
-        } catch (e: any) {
-            setRunsError(e?.message || String(e));
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            setRunsError(msg);
         } finally {
             setRunsLoading(false);
         }
@@ -99,10 +84,16 @@ export default function Dashboard() {
                 throw new Error(data.message || "Failed to plan workflow");
             }
 
-        } catch (err: any) {
-            // console.error(err);
-            alert(err?.message || String(err));
-            setError(err?.message || String(err));
+            // Immediately save the planned workflow locally
+            if (data.workflow) {
+                await window.electron.saveWorkflow(data.workflow);
+                await fetchWorkflows();
+            }
+
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            alert(msg);
+            setError(msg);
         } finally {
             setLoading(false);
         }
@@ -119,24 +110,17 @@ export default function Dashboard() {
     async function handleSaveEdit(id: string) {
         try {
             setWorkflowsLoading(true);
-            const res = await fetch(`${API}/api/update-workflow`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    id,
-                    name: editName,
-                    hotkey: editHotkey,
-                }),
+            await window.electron.saveWorkflow({
+                id,
+                name: editName,
+                hotkey: editHotkey,
             });
-            const data = await res.json();
-            if (data.status !== "success") {
-                throw new Error(data.message || "Failed to update workflow");
-            }
             setEditingId(null);
             await fetchWorkflows(); // refresh list
-        } catch (e: any) {
-            alert(e?.message || String(e));
-            setWorkflowsError(e?.message || String(e));
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            alert(msg);
+            setWorkflowsError(msg);
         } finally {
             setWorkflowsLoading(false);
         }
@@ -157,16 +141,11 @@ export default function Dashboard() {
             setWorkflowsError(null);
             setWorkflowsLoading(true);
 
-            const result = await fetch(`${API}/api/delete-workflow/${id}`, {
-                method: "DELETE",
-            });
-            const data = await result.json();
-            if (data.status !== "success") {
-                throw new Error(data.message || "Failed to delete workflow");
-            }
+            await window.electron.deleteWorkflow(id);
             await fetchWorkflows();
-        } catch (e: any) {
-            setWorkflowsError(e?.message || String(e));
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            setWorkflowsError(msg);
         } finally {
             setWorkflowsLoading(false);
         }
@@ -337,11 +316,11 @@ export default function Dashboard() {
                             <li key={run.id} className="list-item">
                                 <div className="item-header">
                                     <div className="item-title">
-                                        {run.workflow_name || "(unnamed)"}
+                                        {run.workflowName || "(unnamed)"}
                                     </div>
                                     <div className="item-meta">
                                         {(() => {
-                                            const date = new Date(run.timestamp * 1000);
+                                            const date = new Date(run.timestamp);
                                             const today = new Date();
                                             const isToday = date.getDate() === today.getDate() &&
                                                 date.getMonth() === today.getMonth() &&
@@ -355,22 +334,24 @@ export default function Dashboard() {
                                     Status: <span className={run.status === "success" ? "status-success" : "status-failure"}>{run.status}</span>
                                 </div>
 
-                                {run.results && (
-                                    <div className="run-results">
-                                        {run.results.map((r: any, idx: number) => (
-                                            <div key={idx} className="result-item">
-                                                <span style={{ fontWeight: 600 }}>{r.tool}:</span>{" "}
-                                                <span>{r.output || r.message || "(no output)"}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
+                                {
+                                    run.results && (
+                                        <div className="run-results">
+                                            {run.results.map((r: any, idx: number) => (
+                                                <div key={idx} className="result-item">
+                                                    <span style={{ fontWeight: 600 }}>{r.tool}:</span>{" "}
+                                                    <span>{r.output || r.message || "(no output)"}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )
+                                }
                             </li>
                         ))}
                     </ul>
                 )}
             </section>
 
-        </main>
+        </main >
     );
 }

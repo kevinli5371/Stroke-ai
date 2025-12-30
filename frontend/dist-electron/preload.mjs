@@ -1,5 +1,12 @@
 "use strict";
 const electron = require("electron");
+electron.contextBridge.exposeInMainWorld("electron", {
+  getRunHistory: () => electron.ipcRenderer.invoke("get-run-history"),
+  clearRunHistory: () => electron.ipcRenderer.invoke("clear-run-history"),
+  getWorkflows: () => electron.ipcRenderer.invoke("get-workflows"),
+  saveWorkflow: (workflow) => electron.ipcRenderer.invoke("save-workflow", workflow),
+  deleteWorkflow: (id) => electron.ipcRenderer.invoke("delete-workflow", id)
+});
 electron.contextBridge.exposeInMainWorld("ipcRenderer", {
   on(...args) {
     const [channel, listener] = args;
