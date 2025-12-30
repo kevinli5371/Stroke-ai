@@ -6,6 +6,7 @@ from openai import OpenAI
 from typing import Dict, Any, List, TypedDict, Optional
 import json
 import uuid
+from pathlib import Path
 
 app = Flask(__name__)
 
@@ -47,9 +48,29 @@ class Workflow(TypedDict):
 # In-Memory DB for now (would be Postgres/Redis in real "Cloud")
 WORKFLOWS: Dict[str, Workflow] = {}
 
-# We no longer write to Hammerspoon config.
-# We also don't really need to persist to disk for this demo, 
-# but could keep a JSON file if needed.
+# -------- Persistence Logic --------
+WORKFLOWS_FILE = Path("workflows.json")
+
+def load_workflows():
+    if not WORKFLOWS_FILE.exists():
+        return
+    try:
+        with open(WORKFLOWS_FILE, "r") as f:
+            data = json.load(f)
+            # data is list of workflows
+            for wf in data:
+                WORKFLOWS[wf["id"]] = wf
+        print(f"[Persistence] Loaded {len(WORKFLOWS)} workflows.")
+    except Exception as e:
+        print(f"[Persistence] Failed to load workflows: {e}")
+
+def save_workflows():
+    try:
+        with open(WORKFLOWS_FILE, "w") as f:
+            json.dump(list(WORKFLOWS.values()), f, indent=2)
+        print(f"[Persistence] Saved {len(WORKFLOWS)} workflows.")
+    except Exception as e:
+        print(f"[Persistence] Failed to save workflows: {e}")
 
 # -------- context layer ------------
 def build_context_layer() -> Dict[str, Any]:
@@ -195,9 +216,14 @@ def plan_workflow_from_command(command: str) -> Workflow:
     }
     
     WORKFLOWS[workflow_id] = workflow
+    save_workflows()
     return workflow
 
 # -------- API Endpoints --------
+
+@app.route("/api/debug/context", methods=["GET"])
+def debug_context():
+    return jsonify(build_context_layer())
 
 @app.route("/api/transform", methods=["POST"])
 def transform_text_api():
@@ -257,15 +283,39 @@ def update_workflow():
     # Update fields
     if "name" in data:
         WORKFLOWS[wf_id]["name"] = data["name"]
+        
     if "hotkey" in data:
+        new_hotkey = data["hotkey"]
+        
+        # Conflict Check
+        if new_hotkey: 
+            new_mods = set(new_hotkey.get("mods", []))
+            new_key = new_hotkey.get("key", "").upper()
+            
+            for other_id, other_wf in WORKFLOWS.items():
+                if other_id == wf_id: continue
+                
+                other_hotkey = other_wf.get("hotkey")
+                if other_hotkey:
+                    other_mods = set(other_hotkey.get("mods", []))
+                    other_key = other_hotkey.get("key", "").upper()
+                    
+                    if new_key == other_key and new_mods == other_mods:
+                        return jsonify({
+                            "status": "error", 
+                            "message": f"Hotkey conflict with workflow: {other_wf.get('name')}"
+                        }), 409
+
         WORKFLOWS[wf_id]["hotkey"] = data["hotkey"]
         
+    save_workflows()
     return jsonify({"status": "success"})
 
 @app.route("/api/delete-workflow/<wf_id>", methods=["DELETE"])
 def delete_workflow(wf_id):
     if wf_id in WORKFLOWS:
         del WORKFLOWS[wf_id]
+        save_workflows()
         return jsonify({"status": "success"})
     return jsonify({"status": "error", "message": "Not found"}), 404
 
@@ -275,6 +325,7 @@ def get_run_history():
     return jsonify({"status": "success", "history": []})
 
 if __name__ == "__main__":
+    load_workflows()
     # In 'Cloud' mode, we might listen on 0.0.0.0, but properly secured.
     # For local dev acting as cloud:
     app.run(host="127.0.0.1", port=8000, debug=True)
