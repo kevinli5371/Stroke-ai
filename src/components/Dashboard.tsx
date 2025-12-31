@@ -100,6 +100,17 @@ export default function Dashboard() {
             const original = workflows.find(w => w.id === id);
             if (!original) throw new Error("Workflow not found");
 
+            // Conflict Detection: Check for duplicate hotkeys
+            const isDuplicate = workflows.some(w =>
+                w.id !== id &&
+                w.hotkey?.key === editHotkey.key &&
+                JSON.stringify([...(w.hotkey?.mods || [])].sort()) === JSON.stringify([...editHotkey.mods].sort())
+            );
+
+            if (isDuplicate) {
+                throw new Error(`Hotkey ${editHotkey.mods.join("+")}+${editHotkey.key} is already used by another workflow.`);
+            }
+
             await window.electron.saveWorkflow({
                 ...original,
                 name: editName,
