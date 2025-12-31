@@ -22621,6 +22621,8 @@ Tools Available (Client-Side Execution):
 11. "transform_clipboard": { instruction: string }
    - Uses an LLM to rewrite/transform the clipboard content in-place.
    - Use this for "rewrite this", "explain this", "tailor this prompt", "audit this code", OR "draft a reply to this".
+12. "snap_window": { target: "left" | "right" | "top" | "bottom" | "maximize", app_name?: string }
+    - If you just opened an app, PASS "app_name" to ensure the correct window is snapped.
 
 Usage Rules:
 - Return ONLY JSON.
@@ -22655,6 +22657,15 @@ Example 2: "Draft a polite reply to this email"
     { "tool": "transform_clipboard", "input": { "instruction": "Write a short, polite reply to this email." } },
     { "tool": "wait", "input": { "seconds": 0.3 } },
     { "tool": "paste_clipboard", "input": {} }
+  ]
+}
+
+Example 3: "Snap window left"
+{
+  "name": "Snap Left",
+  "hotkey": { "mods": ["cmd", "alt"], "key": "Left" },
+  "steps": [
+    { "tool": "snap_window", "input": { "target": "left", "app_name": "Google Chrome" } }
   ]
 }
 `;
@@ -22899,6 +22910,51 @@ const TOOLS = {
     const current = clipboard.readText();
     clipboard.writeText(current + "\n" + text);
     return { success: true };
+  },
+  "snap_window": async (input) => {
+    const target = input.target || "maximize";
+    console.log(`[Tool:snap_window] Snapping to ${target}`);
+    const display = screen.getPrimaryDisplay();
+    const { x, y, width, height } = display.workArea;
+    let newX = x;
+    let newY = y;
+    let newW = width;
+    let newH = height;
+    if (target === "left") {
+      newW = width / 2;
+    } else if (target === "right") {
+      newX = x + width / 2;
+      newW = width / 2;
+    } else if (target === "top") {
+      newH = height / 2;
+    } else if (target === "bottom") {
+      newY = y + height / 2;
+      newH = height / 2;
+    }
+    newX = Math.floor(newX);
+    newY = Math.floor(newY);
+    newW = Math.floor(newW);
+    newH = Math.floor(newH);
+    newW = Math.floor(newW);
+    newH = Math.floor(newH);
+    const appName = input.app_name;
+    const processTarget = appName ? `process "${appName}"` : "first application process whose frontmost is true";
+    const script = `
+      tell application "${appName || "System Events"}" to activate
+      delay 0.2
+      tell application "System Events"
+        set targetProc to ${processTarget}
+        set frontWindow to first window of targetProc
+        set position of frontWindow to {${newX}, ${newY}}
+        set size of frontWindow to {${newW}, ${newH}}
+      end tell
+    `;
+    try {
+      await execAppleScript(script);
+      return { success: true };
+    } catch (e) {
+      return { success: false, text: String(e) };
+    }
   },
   "replace_clipboard": async (input) => {
     const text = input.text || "";
