@@ -42,15 +42,23 @@ html {
     display: flex;
     height: 100vh;
     width: 100vw;
-    background: var(--bg-app);
+    /* Frosted Glass: High opacity + heavy blur */
+    background: linear-gradient(135deg, rgba(35, 35, 40, 0.98) 0%, rgba(25, 25, 28, 0.99) 100%);
+    /* REMOVED backdrop-filter to fix square corners artifact */
+
     /* If window is transparent, this defines the shape */
     border-radius: var(--radius-window);
     overflow: hidden;
+    /* Force hard clipping of background to fix "excess bits" artifacts */
+    clip-path: inset(0 round var(--radius-window));
+
     /* Padding to create the "gap" for floating elements if desired, 
        but for standard Craft look, usually the sidebar floats INSIDE. */
     position: relative;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    /* Subtle edge definition */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    /* Slightly softer edge */
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    /* Stronger shadow for depth */
 }
 
 /* Sidebar - Floating Style */

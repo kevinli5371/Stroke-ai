@@ -55,6 +55,10 @@ function createDashboardWindow() {
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 16, y: 16 },
+    // Explicitly disabling frame to ensure no system borders render
+    frame: false,
+    // Custom/CSS shadow only. System shadow causes artifacts with custom border radius.
+    hasShadow: false,
     // transparent: true is required for custom rounded corners (masking the rectangular window)
     transparent: true,
     // REMOVED vibrancy: 'sidebar' because it fills the rectangular window bounds, 
