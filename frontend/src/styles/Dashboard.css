@@ -1,57 +1,102 @@
 /* Dark Craft-like Theme */
+/* Global Vars */
 :root {
     --bg-app: #1c1c1e;
-    --bg-sidebar: #252528;
-    /* Slightly lighter than main bg */
+    /* Darker, blending with mac window */
     --bg-card: #2c2c2e;
-    --bg-input: #1c1c1e;
-    --border-subtle: #3a3a3c;
-    --border-active: #505055;
+    --bg-sidebar: rgba(44, 44, 46, 0.8);
+    /* Semi-transparent */
     --text-main: #ffffff;
-    --text-muted: #98989d;
+    --text-muted: #8e8e93;
     --accent: #0a84ff;
-    --accent-fg: #ffffff;
-    --radius-lg: 14px;
+
+    --radius-lg: 16px;
     --radius-md: 10px;
-    --radius-sm: 6px;
-    --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.2);
+    --radius-window: 24px;
+    /* Super rounded window */
+
+    --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.15);
+    --shadow-floating: 0 8px 24px rgba(0, 0, 0, 0.2);
 }
 
-body {
+* {
+    box-sizing: border-box;
+}
+
+body,
+html {
     margin: 0;
-    background-color: var(--bg-app);
-    color: var(--text-main);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 0;
     height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text-main);
+    /* Make exact body transparent so we can control window radius via container */
+    background: transparent;
     overflow: hidden;
+    /* Prevent scrolling body */
 }
 
-/* Layout */
+/* Main App Container - acts as the "Window" */
 .app-container {
     display: flex;
     height: 100vh;
+    width: 100vw;
+    background: var(--bg-app);
+    /* If window is transparent, this defines the shape */
+    border-radius: var(--radius-window);
+    overflow: hidden;
+    /* Padding to create the "gap" for floating elements if desired, 
+       but for standard Craft look, usually the sidebar floats INSIDE. */
+    position: relative;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    /* Subtle edge definition */
 }
 
-/* Sidebar */
+/* Sidebar - Floating Style */
 .app-sidebar {
     width: 250px;
-    background: linear-gradient(180deg, #2c2c2e 0%, #252528 100%);
-    border-right: 1px solid #000;
+    /* Floating dimensions */
+    margin: 6px;
+    margin-right: 0;
+    border-radius: var(--radius-lg);
+    background: var(--bg-sidebar);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+
     display: flex;
     flex-direction: column;
-    padding: 1rem;
-    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+    padding: 2rem 0.5rem;
+    /* Reduced horizontal padding */
+
+    /* Floating shadow/border */
+    box-shadow: var(--shadow-floating);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+
+    /* Draggable top region for window moving */
+    -webkit-app-region: drag;
+}
+
+/* Interactive elements in drag region need no-drag */
+.app-sidebar button,
+.app-sidebar .nav-item {
+    -webkit-app-region: no-drag;
 }
 
 .sidebar-brand {
-    font-size: 1rem;
-    font-weight: 600;
-    margin-bottom: 2rem;
-    padding: 0 0.5rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    /* Reduced margin */
     color: var(--text-main);
+    padding-left: 0.5rem;
+    padding-top: 0.5rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
+
+    /* Separator line */
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .sidebar-nav {
@@ -64,12 +109,17 @@ body {
     background: transparent;
     border: none;
     color: var(--text-muted);
-    padding: 0.5rem 0.75rem;
+    padding: 0.6rem 0.75rem;
+    /* Slightly taller */
     text-align: left;
-    font-size: 0.9rem;
-    border-radius: var(--radius-sm);
+    font-size: 0.95rem;
+    /* Slightly larger text */
+    border-radius: var(--radius-md);
+    /* Rounded corners */
     cursor: pointer;
     transition: all 0.2s;
+    width: 100%;
+    /* Fill width */
 }
 
 .nav-item:hover {
@@ -107,22 +157,37 @@ body {
 /* Main Content */
 .main-content {
     flex: 1;
-    padding: 2rem;
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
-    background-color: var(--bg-app);
+    padding: 2rem 2.5rem;
+
+    /* Make main content draggable at top too */
+    /* But content itself allows scroll */
 }
 
+/* Header needs to handle traffic lights/drag if it spans full top */
 .content-header {
+    margin-bottom: 2rem;
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
-    margin-bottom: 2rem;
+    align-items: center;
+    -webkit-app-region: drag;
+    /* Allow dragging from header */
+    padding-top: 1rem;
+    /* Space for aesthetic balance */
 }
 
 .content-header h1 {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
     font-weight: 700;
     margin: 0;
+}
+
+/* Buttons in header must be clickable */
+.content-header button,
+.content-header .search-bar {
+    -webkit-app-region: no-drag;
 }
 
 /* Masonry Grid (JS Controlled) */

@@ -22480,6 +22480,16 @@ function createDashboardWindow() {
     width: 1250,
     height: 800,
     icon: path$2.join(process.env.VITE_PUBLIC, "electron-vite.svg"),
+    titleBarStyle: "hidden",
+    trafficLightPosition: { x: 16, y: 16 },
+    // transparent: true is required for custom rounded corners (masking the rectangular window)
+    transparent: true,
+    // REMOVED vibrancy: 'sidebar' because it fills the rectangular window bounds, 
+    // creating "grey bits" in the corners outside our custom border-radius.
+    // vibrancy: 'sidebar', 
+    // visualEffectState: 'active',
+    backgroundColor: "#00000000",
+    // Explicitly transparent
     webPreferences: {
       preload: path$2.join(__dirname, "preload.mjs")
     }
@@ -22872,9 +22882,11 @@ const TOOLS = {
     }
   },
   "copy_selection": async () => {
-    console.log("[Tool:copy_selection] Cmd+C");
+    console.log("[Tool:copy_selection] Waiting for key release then Cmd+C");
     try {
+      await wait(0.5);
       await execAppleScript(`tell application "System Events" to keystroke "c" using command down`);
+      await wait(0.2);
       return { success: true };
     } catch (e) {
       return { success: false, text: String(e) };

@@ -53,6 +53,15 @@ function createDashboardWindow() {
     width: 1250,
     height: 800,
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 16, y: 16 },
+    // transparent: true is required for custom rounded corners (masking the rectangular window)
+    transparent: true,
+    // REMOVED vibrancy: 'sidebar' because it fills the rectangular window bounds, 
+    // creating "grey bits" in the corners outside our custom border-radius.
+    // vibrancy: 'sidebar', 
+    // visualEffectState: 'active',
+    backgroundColor: '#00000000', // Explicitly transparent
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
@@ -567,11 +576,15 @@ const TOOLS: Record<string, (input: any) => Promise<any>> = {
     }
   },
   "copy_selection": async () => {
-    console.log("[Tool:copy_selection] Cmd+C");
+    console.log("[Tool:copy_selection] Waiting for key release then Cmd+C");
     try {
-      // Clear clipboard first to ensure we catch new copy? 
-      // Or just copy.
+      // Critical: User might still be holding modifier keys from the hotkey trigger (e.g. Cmd+Alt+R).
+      // If we send Cmd+C immediately, it registers as Cmd+Alt+C, which opens devtools or fails.
+      // Waiting 500ms gives user time to release keys.
+      await wait(0.5);
       await execAppleScript(`tell application "System Events" to keystroke "c" using command down`);
+      // Additional wait to ensure clipboard updates before next step
+      await wait(0.2);
       return { success: true };
     } catch (e) {
       return { success: false, text: String(e) };
