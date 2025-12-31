@@ -1,22 +1,23 @@
 /* Dark Craft-like Theme */
 /* Global Vars */
 :root {
-    --bg-app: #1c1c1e;
-    /* Darker, blending with mac window */
-    --bg-card: #2c2c2e;
-    --bg-sidebar: rgba(44, 44, 46, 0.8);
-    /* Semi-transparent */
+    /* Liquid Glass Theme: Super Subtle */
+    /* Almost opaque, just a hint of depth */
+    --bg-app: rgba(28, 28, 30, 0.97);
+    --bg-card: rgba(44, 44, 46, 0.98);
+    --bg-sidebar: rgba(30, 30, 32, 0.92);
+
     --text-main: #ffffff;
-    --text-muted: #8e8e93;
+    --text-muted: #98989d;
     --accent: #0a84ff;
 
     --radius-lg: 16px;
     --radius-md: 10px;
     --radius-window: 24px;
-    /* Super rounded window */
 
-    --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.15);
-    --shadow-floating: 0 8px 24px rgba(0, 0, 0, 0.2);
+    --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.2);
+    --shadow-floating: 0 8px 32px rgba(0, 0, 0, 0.3);
+    /* Deeper shadow for floating depth */
 }
 
 * {
