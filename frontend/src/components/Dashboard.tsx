@@ -96,7 +96,16 @@ export default function Dashboard() {
 
     async function handleSaveEdit(id: string) {
         try {
-            await window.electron.saveWorkflow({ id, name: editName, hotkey: editHotkey });
+            // Find original to preserve "steps" and other fields
+            const original = workflows.find(w => w.id === id);
+            if (!original) throw new Error("Workflow not found");
+
+            await window.electron.saveWorkflow({
+                ...original,
+                name: editName,
+                hotkey: editHotkey
+            });
+
             setEditingId(null);
             fetchWorkflows();
         } catch (e) {
