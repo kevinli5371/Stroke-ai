@@ -81,9 +81,16 @@ function createDashboardWindow() {
 }
 
 // -- HTTP SERVER TO LISTEN FOR TRIGGERS --
-const SERVER_PORT = 4444;
+let SERVER_PORT = 4444;
 
-function startLocalServer() {
+function startLocalServer(retryCount = 0) {
+  const MAX_RETRIES = 100; // Give up after checking 100 ports
+
+  if (retryCount > MAX_RETRIES) {
+    console.error(`[Electron Server] Failed to find an open port after ${MAX_RETRIES} attempts.`);
+    return;
+  }
+
   const server = http.createServer((req, res) => {
     if (req.method === 'POST' && req.url === '/trigger') {
       let body = '';
@@ -118,8 +125,15 @@ function startLocalServer() {
     }
   });
 
-  server.on('error', (e) => {
-    console.error(`[Electron Server] Failed to start server on port ${SERVER_PORT}:`, e);
+  server.on('error', (e: any) => {
+    if (e.code === 'EADDRINUSE') {
+      console.log(`[Electron Server] Port ${SERVER_PORT} is in use, trying ${SERVER_PORT + 1}...`);
+      SERVER_PORT++;
+      server.close(); // Ensure handle is released
+      startLocalServer(retryCount + 1);
+    } else {
+      console.error(`[Electron Server] Failed to start server on port ${SERVER_PORT}:`, e);
+    }
   });
 
   server.listen(SERVER_PORT, '127.0.0.1', () => {
