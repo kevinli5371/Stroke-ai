@@ -48,12 +48,15 @@ export default function Dashboard() {
 
     async function fetchRecentRuns() {
         try {
+            setRunsLoading(true); // Indicate loading start
             if (window.electron && window.electron.getRunHistory) {
                 const history = await window.electron.getRunHistory();
                 setRecentRuns(history || []);
             }
         } catch (e: unknown) {
             setRunsError(e instanceof Error ? e.message : String(e));
+        } finally {
+            setRunsLoading(false); // Indicate loading end
         }
     }
 
@@ -262,7 +265,27 @@ export default function Dashboard() {
                                     <div key={run.id} className="run-row">
                                         <div className="run-info">
                                             <div className="run-name">{run.workflowName || "Unknown Execution"}</div>
-                                            <div className="run-time">{new Date(run.timestamp).toLocaleString()}</div>
+                                            <div className="run-time">
+                                                {(() => {
+                                                    const d = new Date(run.timestamp);
+                                                    const now = new Date();
+                                                    const isToday = d.getDate() === now.getDate() &&
+                                                        d.getMonth() === now.getMonth() &&
+                                                        d.getFullYear() === now.getFullYear();
+
+                                                    const yesterday = new Date(now);
+                                                    yesterday.setDate(now.getDate() - 1);
+                                                    const isYesterday = d.getDate() === yesterday.getDate() &&
+                                                        d.getMonth() === yesterday.getMonth() &&
+                                                        d.getFullYear() === yesterday.getFullYear();
+
+                                                    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                                                    if (isToday) return `Today at ${timeStr}`;
+                                                    if (isYesterday) return `Yesterday at ${timeStr}`;
+                                                    return `${d.toLocaleDateString()} at ${timeStr}`;
+                                                })()}
+                                            </div>
                                         </div>
                                         <div className={`run-status-pill ${run.status}`}>
                                             {run.status}
