@@ -163,7 +163,7 @@ export default function Dashboard() {
                         </header>
 
                         {activeTab === 'home' && (
-                            <div className="dashboard-grid">
+                            <>
                                 {/* Command Input Card */}
                                 <div className="card command-card">
                                     <h2>Create New</h2>
@@ -182,77 +182,82 @@ export default function Dashboard() {
                                     {error && <div className="error-badge">{error}</div>}
                                 </div>
 
-                                {/* Workflows Grid */}
-                                {workflows.map(wf => (
-                                    <div key={wf.id} className="card workflow-card">
-                                        {editingId === wf.id ? (
-                                            <div className="edit-mode">
-                                                <input
-                                                    value={editName}
-                                                    onChange={e => setEditName(e.target.value)}
-                                                    className="edit-name-input"
-                                                />
-                                                {/* Simplified hotkey editor for compactness */}
-                                                <div className="edit-hotkey-simple">
-                                                    {["cmd", "alt", "ctrl", "shift"].map(mod => (
-                                                        <label key={mod} className={`mod-chip ${editHotkey.mods.includes(mod) ? 'selected' : ''}`}>
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={editHotkey.mods.includes(mod)}
-                                                                onChange={e => {
-                                                                    const newMods = e.target.checked
-                                                                        ? [...editHotkey.mods, mod]
-                                                                        : editHotkey.mods.filter(m => m !== mod);
-                                                                    setEditHotkey({ ...editHotkey, mods: newMods });
-                                                                }}
-                                                            />
-                                                            {mod}
-                                                        </label>
-                                                    ))}
-                                                    <input
-                                                        className="key-input"
-                                                        value={editHotkey.key}
-                                                        onChange={e => setEditHotkey({ ...editHotkey, key: e.target.value.toUpperCase().slice(0, 1) })}
-                                                        placeholder="K"
-                                                    />
-                                                </div>
-                                                <div className="edit-actions">
-                                                    <button onClick={() => handleSaveEdit(wf.id)}>Save</button>
-                                                    <button onClick={() => setEditingId(null)} className="secondary">Cancel</button>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <div className="card-header">
-                                                    <div className="card-title">{wf.name || "Untitled"}</div>
-                                                    <div className="card-menu">
-                                                        <button onClick={() => startEditing(wf)}>Edit</button>
-                                                        <button onClick={() => handleDelete(wf.id)}>Del</button>
-                                                    </div>
-                                                </div>
-                                                <div className="hotkey-badge">
-                                                    {wf.hotkey?.mods?.join("+")} + {wf.hotkey?.key}
-                                                </div>
-                                                {wf.steps && wf.steps.length > 0 && (
-                                                    <div className="steps-list">
-                                                        {wf.steps.map((s: any, idx: number) => (
-                                                            <div key={idx} className="step-item">
-                                                                {s.tool} {s.input && Object.keys(s.input).length > 0 ? `(${JSON.stringify(s.input)})` : ""}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                ))}
+                                {workflowsError && <div className="error-banner">{workflowsError}</div>}
 
+                                <MasonryGrid
+                                    items={workflows}
+                                    renderItem={(wf) => (
+                                        <div key={wf.id} className="card workflow-card">
+                                            {editingId === wf.id ? (
+                                                <div className="edit-mode">
+                                                    <input
+                                                        value={editName}
+                                                        onChange={e => setEditName(e.target.value)}
+                                                        className="edit-name-input"
+                                                    />
+                                                    <div className="edit-hotkey-simple">
+                                                        {["cmd", "alt", "ctrl", "shift"].map(mod => (
+                                                            <label key={mod} className={`mod-chip ${editHotkey.mods.includes(mod) ? 'selected' : ''}`}>
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={editHotkey.mods.includes(mod)}
+                                                                    onChange={e => {
+                                                                        const newMods = e.target.checked
+                                                                            ? [...editHotkey.mods, mod]
+                                                                            : editHotkey.mods.filter(m => m !== mod);
+                                                                        setEditHotkey({ ...editHotkey, mods: newMods });
+                                                                    }}
+                                                                />
+                                                                {mod}
+                                                            </label>
+                                                        ))}
+                                                        <input
+                                                            className="key-input"
+                                                            value={editHotkey.key}
+                                                            onChange={e => setEditHotkey({ ...editHotkey, key: e.target.value.toUpperCase().slice(0, 1) })}
+                                                            placeholder="K"
+                                                        />
+                                                    </div>
+                                                    <div className="edit-actions">
+                                                        <button onClick={() => handleSaveEdit(wf.id)}>Save</button>
+                                                        <button onClick={() => setEditingId(null)} className="secondary">Cancel</button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="card-header">
+                                                        <div className="card-title">{wf.name || "Untitled"}</div>
+                                                        <div className="card-menu">
+                                                            <button onClick={() => startEditing(wf)}>Edit</button>
+                                                            <button onClick={() => handleDelete(wf.id)}>Del</button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="hotkey-badge">
+                                                        {wf.hotkey?.mods?.join("+")} + {wf.hotkey?.key}
+                                                    </div>
+                                                    {wf.steps && wf.steps.length > 0 && (
+                                                        <div className="steps-list">
+                                                            {wf.steps.map((s: any, idx: number) => (
+                                                                <div key={idx} className="step-item">
+                                                                    - {s.tool} {s.input && Object.keys(s.input).length > 0 ? `(${JSON.stringify(s.input)})` : ""}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                />
                                 {workflowsLoading && <div className="loading-state">Loading workflows...</div>}
-                            </div>
+                            </>
                         )}
 
                         {activeTab === 'runs' && (
                             <div className="runs-list-container">
+                                {runsError && <div className="error-banner">{runsError}</div>}
+                                {runsLoading && <div className="loading-state">Loading run history...</div>}
+
                                 {recentRuns.map(run => (
                                     <div key={run.id} className="run-row">
                                         <div className="run-info">
@@ -269,6 +274,65 @@ export default function Dashboard() {
                     </>
                 )}
             </main>
+        </div>
+    );
+}
+
+// Helper Component for Masonry Layout
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function MasonryGrid({ items, renderItem }: { items: any[], renderItem: (item: any) => React.ReactNode }) {
+    const [columns, setColumns] = useState(3);
+
+    useEffect(() => {
+        const updateColumns = () => {
+            // Main content width approximates
+            // Sidebar is 250px. Window width?
+            const width = window.innerWidth - 250 - 64; // -sidebar -padding
+            if (width < 600) setColumns(1);
+            else if (width < 900) setColumns(2);
+            else if (width < 1200) setColumns(3);
+            else setColumns(4);
+        };
+
+        updateColumns();
+        window.addEventListener('resize', updateColumns);
+        return () => window.removeEventListener('resize', updateColumns);
+    }, []);
+
+    // Distribute items into columns (Shortest Column First)
+    const columnItems = Array.from({ length: columns }, () => [] as typeof items);
+    const columnHeights = new Array(columns).fill(0);
+
+    items.forEach((item) => {
+        // Estimate height: Base card (~100px) + step height (~25px per step)
+        // This heuristic ensures we fill shorter columns first
+        const stepCount = item.steps?.length || 0;
+        const estimatedHeight = 100 + (stepCount * 25);
+
+        // Find the column with the minimum accumulated height
+        let minColIndex = 0;
+        let minHeight = columnHeights[0];
+
+        for (let i = 1; i < columns; i++) {
+            if (columnHeights[i] < minHeight) {
+                minHeight = columnHeights[i];
+                minColIndex = i;
+            }
+        }
+
+        columnItems[minColIndex].push(item);
+        // Add card height PLUS the gap (24px = 1.5rem)
+        // This prevents columns with many small cards from being underestimated
+        columnHeights[minColIndex] += estimatedHeight + 24;
+    });
+
+    return (
+        <div className="masonry-grid">
+            {columnItems.map((col, i) => (
+                <div key={i} className="masonry-column">
+                    {col.map(item => renderItem(item))}
+                </div>
+            ))}
         </div>
     );
 }
