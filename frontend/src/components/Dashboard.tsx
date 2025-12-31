@@ -140,7 +140,7 @@ export default function Dashboard() {
             </nav>
 
             <div className="sidebar-footer">
-                <div className="status-indicator online">Online</div>
+                <div className="status-indicator placeholder">placeholder</div>
             </div>
         </aside>
     );
