@@ -22451,7 +22451,7 @@ main.exports.populate = DotenvModule.populate;
 main.exports = DotenvModule;
 var mainExports = main.exports;
 const dotenv = /* @__PURE__ */ getDefaultExportFromCjs(mainExports);
-dotenv.config({ path: path$2.join(process.cwd(), "../.env") });
+dotenv.config({ path: path$2.join(process.cwd(), ".env") });
 let openaiClient = null;
 function getOpenAI() {
   const prefs = preferencesStore.get("preferences");

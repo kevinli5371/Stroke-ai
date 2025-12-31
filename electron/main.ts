@@ -8,7 +8,7 @@ import OpenAI from 'openai'
 import dotenv from 'dotenv'
 
 // Load environment variables from the root .env file
-dotenv.config({ path: path.join(process.cwd(), '../.env') });
+dotenv.config({ path: path.join(process.cwd(), '.env') });
 
 
 // Dynamic OpenAI Client Wrapper

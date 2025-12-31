@@ -7,6 +7,7 @@ export default function Dashboard() {
     const [command, setCommand] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
     // Data State
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,6 +75,7 @@ export default function Dashboard() {
                 await window.electron.saveWorkflow(data.workflow);
                 await fetchWorkflows();
                 setCommand(""); // Reset command on success
+                setIsCreateModalOpen(false);
             }
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : String(err));
@@ -181,29 +183,56 @@ export default function Dashboard() {
                         <header className="content-header">
                             <h1>{activeTab === 'home' ? 'My Workflows' : 'Activity Log'}</h1>
                             <div className="header-actions">
-                                {/* Place for global actions if needed */}
+                                {activeTab === 'home' && (
+                                    <button
+                                        className="header-add-btn"
+                                        onClick={() => setIsCreateModalOpen(true)}
+                                        title="Create New Workflow"
+                                    >
+                                        +
+                                    </button>
+                                )}
                             </div>
                         </header>
 
                         {activeTab === 'home' && (
                             <>
-                                {/* Command Input Card */}
-                                <div className="card command-card">
-                                    <h2>Create New</h2>
-                                    <form onSubmit={handleSubmit}>
-                                        <input
-                                            type="text"
-                                            placeholder="Describe a workflow..."
-                                            value={command}
-                                            onChange={(e) => setCommand(e.target.value)}
-                                            disabled={loading}
-                                        />
-                                        <button type="submit" disabled={loading || !command.trim()}>
-                                            {loading ? "Generating..." : "Create"}
-                                        </button>
-                                    </form>
-                                    {error && <div className="error-badge">{error}</div>}
-                                </div>
+                                {/* Create Workflow Modal */}
+                                {isCreateModalOpen && (
+                                    <div className="modal-overlay" onClick={() => setIsCreateModalOpen(false)}>
+                                        <div className="modal-content" onClick={e => e.stopPropagation()}>
+                                            <div className="modal-header">
+                                                <h2>Create New Workflow</h2>
+                                                <button className="close-button" onClick={() => setIsCreateModalOpen(false)}>×</button>
+                                            </div>
+                                            <div className="modal-body">
+                                                <form onSubmit={handleSubmit}>
+                                                    <textarea
+                                                        placeholder="Describe what you want this workflow to do..."
+                                                        value={command}
+                                                        onChange={(e) => setCommand(e.target.value)}
+                                                        disabled={loading}
+                                                        autoFocus
+                                                    />
+                                                    <div className="modal-actions">
+                                                        <button
+                                                            type="button"
+                                                            className="btn-secondary"
+                                                            onClick={() => setIsCreateModalOpen(false)}
+                                                            style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                        <button type="submit" className="btn-primary" disabled={loading || !command.trim()}>
+                                                            {loading ? "Generating..." : "Create Workflow"}
+                                                        </button>
+                                                    </div>
+                                                </form>
+                                                {error && <div className="error-badge" style={{ marginTop: '1rem' }}>{error}</div>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {workflowsError && <div className="error-banner">{workflowsError}</div>}
 
