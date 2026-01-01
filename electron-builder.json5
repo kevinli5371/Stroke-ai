@@ -1,9 +1,9 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  "appId": "kevinli.strokeai",
+  "appId": "kevinli.chord",
   "asar": true,
-  "productName": "Stroke-ai",
+  "productName": "Chord",
   "directories": {
     "output": "release/${version}"
   },

@@ -194,7 +194,7 @@ export default function Dashboard() {
     const renderSidebar = () => (
         <aside className="app-sidebar">
             <div className="sidebar-brand">
-                <span>Stroke.ai</span>
+                <span>Chord</span>
             </div>
 
             <nav className="sidebar-nav">
