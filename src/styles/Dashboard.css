@@ -11,7 +11,8 @@
     --text-main: #ffffff;
     --text-muted: #98989d;
     --text-inverse: #000000;
-    --accent: #0a84ff;
+    --accent: #3b99fc;
+    /* Electric Blue */
 
     --border-subtle: rgba(255, 255, 255, 0.08);
     --border-active: rgba(255, 255, 255, 0.2);
@@ -39,7 +40,8 @@
     --text-main: #000000;
     --text-muted: #6e6e73;
     --text-inverse: #ffffff;
-    --accent: #007aff;
+    --accent: #3b99fc;
+    /* Electric Blue */
 
     --border-subtle: rgba(0, 0, 0, 0.1);
     --border-active: rgba(0, 0, 0, 0.2);
@@ -169,8 +171,8 @@ html {
 }
 
 .nav-item.active {
-    background: var(--bg-element);
-    color: var(--text-main);
+    background: var(--accent);
+    color: #ffffff;
 }
 
 .sidebar-footer {
@@ -434,8 +436,8 @@ html {
 }
 
 .mod-chip.selected {
-    background: var(--text-main);
-    color: var(--text-inverse);
+    background: var(--accent);
+    color: #ffffff;
 }
 
 .mod-chip.error {
@@ -478,8 +480,8 @@ html {
 }
 
 .edit-actions button:first-child {
-    background: var(--text-main);
-    color: var(--text-inverse);
+    background: var(--accent);
+    color: #ffffff;
 }
 
 .edit-actions button.secondary {
@@ -635,8 +637,8 @@ html {
 }
 
 .btn-primary {
-    background: var(--text-main);
-    color: var(--text-inverse);
+    background: var(--accent);
+    color: #ffffff;
     border: none;
     padding: 0.6rem 1.2rem;
     border-radius: var(--radius-md);
@@ -655,8 +657,8 @@ html {
     width: 32px;
     height: 32px;
     border-radius: 50%;
-    background: var(--text-main);
-    color: var(--text-inverse);
+    background: var(--accent);
+    color: #ffffff;
     border: none;
     font-size: 1.5rem;
     font-weight: 400;
@@ -773,8 +775,8 @@ html {
 }
 
 .save-btn {
-    background: var(--text-main);
-    color: #000;
+    background: var(--accent);
+    color: #ffffff;
     border: none;
     padding: 0.8rem 2rem;
     border-radius: var(--radius-md);
