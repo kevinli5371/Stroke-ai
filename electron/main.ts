@@ -607,6 +607,39 @@ function wait(seconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, seconds * 1000));
 }
 
+function waitForModifiersRelease(): Promise<void> {
+  return new Promise((resolve) => {
+    // Python script to check CoreGraphics event flags
+    const pythonScript = `
+import sys
+import time
+from ctypes import cdll, util
+
+cg_path = util.find_library("CoreGraphics")
+if not cg_path:
+    sys.exit(0)
+
+cg = cdll.LoadLibrary(cg_path)
+# kCGEventSourceStateHIDSystemState = 1
+# Masks: Shift(0x20000), Control(0x40000), Alt(0x80000), Command(0x100000)
+MASK = 0x20000 | 0x40000 | 0x80000 | 0x100000
+
+for i in range(20): # Try for 2 seconds
+    flags = cg.CGEventSourceFlagsState(1)
+    if not (flags & MASK):
+        sys.exit(0)
+    time.sleep(0.05)
+`;
+    // Run python3
+    const command = `python3 -c '${pythonScript}'`;
+    exec(command, { timeout: 2100 }, () => {
+      // Whether it succeeded or timed out, we resolve.
+      // If it exited early (keys released), we proceed immediately.
+      resolve();
+    });
+  });
+}
+
 // Map of ToolName -> Function
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const TOOLS: Record<string, (input: any) => Promise<any>> = {
@@ -645,8 +678,8 @@ const TOOLS: Record<string, (input: any) => Promise<any>> = {
     try {
       // Critical: User might still be holding modifier keys from the hotkey trigger (e.g. Cmd+Alt+R).
       // If we send Cmd+C immediately, it registers as Cmd+Alt+C, which opens devtools or fails.
-      // Waiting 500ms gives user time to release keys.
-      await wait(0.5);
+      // Wait for release smartly.
+      await waitForModifiersRelease();
       await execAppleScript(`tell application "System Events" to keystroke "c" using command down`);
       // Additional wait to ensure clipboard updates before next step
       await wait(0.2);

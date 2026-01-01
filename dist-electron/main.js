@@ -22899,6 +22899,34 @@ function execAppleScript(script) {
 function wait(seconds) {
   return new Promise((resolve2) => setTimeout(resolve2, seconds * 1e3));
 }
+function waitForModifiersRelease() {
+  return new Promise((resolve2) => {
+    const pythonScript = `
+import sys
+import time
+from ctypes import cdll, util
+
+cg_path = util.find_library("CoreGraphics")
+if not cg_path:
+    sys.exit(0)
+
+cg = cdll.LoadLibrary(cg_path)
+# kCGEventSourceStateHIDSystemState = 1
+# Masks: Shift(0x20000), Control(0x40000), Alt(0x80000), Command(0x100000)
+MASK = 0x20000 | 0x40000 | 0x80000 | 0x100000
+
+for i in range(20): # Try for 2 seconds
+    flags = cg.CGEventSourceFlagsState(1)
+    if not (flags & MASK):
+        sys.exit(0)
+    time.sleep(0.05)
+`;
+    const command = `python3 -c '${pythonScript}'`;
+    exec(command, { timeout: 2100 }, () => {
+      resolve2();
+    });
+  });
+}
 const TOOLS = {
   "debug_log": async (input) => {
     console.log("[Tool:debug_log]", input.text);
@@ -22933,7 +22961,7 @@ const TOOLS = {
   "copy_selection": async () => {
     console.log("[Tool:copy_selection] Waiting for key release then Cmd+C");
     try {
-      await wait(0.5);
+      await waitForModifiersRelease();
       await execAppleScript(`tell application "System Events" to keystroke "c" using command down`);
       await wait(0.2);
       return { success: true };
