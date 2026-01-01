@@ -9,6 +9,8 @@ export default function Dashboard() {
     const [error, setError] = useState<string | null>(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isModalClosing, setIsModalClosing] = useState(false);
+    const [overlayHotkey, setOverlayHotkey] = useState<{ mods: string[], key: string }>({ mods: ["cmd", "alt"], key: "O" });
+    const [isSettingsValid, setIsSettingsValid] = useState(true);
 
     // Data State
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -47,6 +49,9 @@ export default function Dashboard() {
             window.electron.getPreferences().then(prefs => {
                 if (prefs.theme) {
                     document.documentElement.setAttribute('data-theme', prefs.theme);
+                }
+                if (prefs.overlayHotkey) {
+                    setOverlayHotkey(prefs.overlayHotkey);
                 }
             }).catch(e => console.error("Failed to load theme", e));
         }
@@ -143,6 +148,15 @@ export default function Dashboard() {
                 throw new Error(`Hotkey ${editHotkey.mods.join("+")}+${editHotkey.key} is already used by another workflow.`);
             }
 
+            // Conflict Detection: Check against Overlay Hotkey
+            const isOverlayConflict =
+                editHotkey.key === overlayHotkey.key &&
+                JSON.stringify([...editHotkey.mods].sort()) === JSON.stringify([...overlayHotkey.mods].sort());
+
+            if (isOverlayConflict) {
+                throw new Error(`Hotkey ${editHotkey.mods.join("+")}+${editHotkey.key} is reserved for the Overlay.`);
+            }
+
             await window.electron.saveWorkflow({
                 ...original,
                 name: editName,
@@ -166,6 +180,16 @@ export default function Dashboard() {
         }
     }
 
+    // Navigation Handler
+    const handleNavigation = (tab: string) => {
+        if (activeTab === 'settings' && !isSettingsValid) {
+            // Shake/Alert logic could go here
+            alert("Please resolve the Hotkey Conflict before leaving Settings.");
+            return;
+        }
+        setActiveTab(tab);
+    };
+
     // Render Side Panel
     const renderSidebar = () => (
         <aside className="app-sidebar">
@@ -176,19 +200,19 @@ export default function Dashboard() {
             <nav className="sidebar-nav">
                 <button
                     className={`nav-item ${activeTab === 'home' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('home')}
+                    onClick={() => handleNavigation('home')}
                 >
                     Home
                 </button>
                 <button
                     className={`nav-item ${activeTab === 'runs' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('runs')}
+                    onClick={() => handleNavigation('runs')}
                 >
                     Run History
                 </button>
                 <button
                     className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('settings')}
+                    onClick={() => handleNavigation('settings')}
                 >
                     Settings
                 </button>
@@ -207,7 +231,7 @@ export default function Dashboard() {
 
             <main className="main-content">
                 {activeTab === 'settings' ? (
-                    <Settings />
+                    <Settings onValidityChange={setIsSettingsValid} />
                 ) : (
                     <>
                         <header className="content-header animate-slide-up" key={`${activeTab}-header`}>

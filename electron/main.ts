@@ -208,6 +208,9 @@ function createWindows() {
     dashboardWin.show()
     dashboardWin.focus()
   }
+
+  // Initialize Hotkeys
+  refreshRegistryAndHotkeys();
 }
 
 app.on('before-quit', () => {
@@ -325,9 +328,15 @@ function buildContextLayer(): any {
     hotkey: w.hotkey
   }));
 
+  const prefs = preferencesStore.get("preferences");
+  const overlayHk = prefs.overlayHotkey || { mods: ["cmd", "alt"], key: "O" };
+
   const reserved = workflows
     .map(w => w.hotkey)
     .filter(h => h !== undefined);
+
+  // Add overlay hotkey to reserved list
+  if (overlayHk) reserved.push(overlayHk);
 
   return {
     environment: {
@@ -427,6 +436,7 @@ interface Preferences {
   apiKey: string;
   defaultBrowser: string;
   theme?: "light" | "dark";
+  overlayHotkey?: { mods: string[]; key: string };
 }
 
 const preferencesStore = new Store<{ preferences: Preferences }>({
@@ -434,7 +444,8 @@ const preferencesStore = new Store<{ preferences: Preferences }>({
   defaults: {
     preferences: {
       apiKey: "",
-      defaultBrowser: "Google Chrome"
+      defaultBrowser: "Google Chrome",
+      overlayHotkey: { mods: ["cmd", "alt"], key: "O" }
     }
   }
 });
@@ -447,6 +458,8 @@ ipcMain.handle("save-preferences", (_event, prefs: Preferences) => {
   preferencesStore.set("preferences", prefs);
   // Reset OpenAI client so next call picks up new key
   openaiClient = null;
+  // Re-register hotkeys in case overlay key changed
+  refreshRegistryAndHotkeys();
   return { status: "success" };
 });
 
@@ -495,6 +508,39 @@ function refreshRegistryAndHotkeys() {
   // Clear existing
   WORKFLOW_REGISTRY.clear();
   globalShortcut.unregisterAll();
+
+  // 0. Register System Hotkeys
+  try {
+    const prefs = preferencesStore.get("preferences");
+    const hk = prefs.overlayHotkey || { mods: ["cmd", "alt"], key: "O" }; // Default fallback
+
+    // Convert to accelerator string
+    const mapMod = (m: string) => {
+      if (m === "cmd") return "Command";
+      if (m === "alt") return "Alt";
+      if (m === "ctrl") return "Control";
+      if (m === "shift") return "Shift";
+      return m;
+    };
+
+    if (hk.key) {
+      const overlayAccelerator = [...(hk.mods || []).map(mapMod), hk.key].join("+");
+
+      globalShortcut.register(overlayAccelerator, () => {
+        console.log("[System] Toggling Overlay");
+        if (overlayWin && !overlayWin.isDestroyed()) {
+          if (overlayWin.isVisible()) {
+            overlayWin.hide();
+          } else {
+            overlayWin.showInactive();
+          }
+        }
+      });
+      console.log(`[Hotkeys] Registered System Hotkey ${overlayAccelerator} for Toggle Overlay`);
+    }
+  } catch (err) {
+    console.error(`[Hotkeys] Failed to register overlay toggle:`, err);
+  }
 
   // Register new
   workflows.forEach(wf => {

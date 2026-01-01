@@ -22602,6 +22602,7 @@ function createWindows() {
     dashboardWin.show();
     dashboardWin.focus();
   }
+  refreshRegistryAndHotkeys();
 }
 app$1.on("before-quit", () => {
   console.log("[Electron Main] App is quitting...");
@@ -22704,7 +22705,10 @@ function buildContextLayer() {
     name: w.name,
     hotkey: w.hotkey
   }));
+  const prefs = preferencesStore.get("preferences");
+  const overlayHk = prefs.overlayHotkey || { mods: ["cmd", "alt"], key: "O" };
   const reserved = workflows.map((w) => w.hotkey).filter((h) => h !== void 0);
+  if (overlayHk) reserved.push(overlayHk);
   return {
     environment: {
       os: "macOS",
@@ -22771,7 +22775,8 @@ const preferencesStore = new ElectronStore({
   defaults: {
     preferences: {
       apiKey: "",
-      defaultBrowser: "Google Chrome"
+      defaultBrowser: "Google Chrome",
+      overlayHotkey: { mods: ["cmd", "alt"], key: "O" }
     }
   }
 });
@@ -22781,6 +22786,7 @@ ipcMain$1.handle("get-preferences", () => {
 ipcMain$1.handle("save-preferences", (_event, prefs) => {
   preferencesStore.set("preferences", prefs);
   openaiClient = null;
+  refreshRegistryAndHotkeys();
   return { status: "success" };
 });
 ipcMain$1.handle("get-workflows", () => {
@@ -22819,6 +22825,33 @@ function refreshRegistryAndHotkeys() {
   console.log(`[Workflows] Reloading ${workflows.length} workflows...`);
   WORKFLOW_REGISTRY.clear();
   globalShortcut.unregisterAll();
+  try {
+    const prefs = preferencesStore.get("preferences");
+    const hk = prefs.overlayHotkey || { mods: ["cmd", "alt"], key: "O" };
+    const mapMod = (m) => {
+      if (m === "cmd") return "Command";
+      if (m === "alt") return "Alt";
+      if (m === "ctrl") return "Control";
+      if (m === "shift") return "Shift";
+      return m;
+    };
+    if (hk.key) {
+      const overlayAccelerator = [...(hk.mods || []).map(mapMod), hk.key].join("+");
+      globalShortcut.register(overlayAccelerator, () => {
+        console.log("[System] Toggling Overlay");
+        if (overlayWin && !overlayWin.isDestroyed()) {
+          if (overlayWin.isVisible()) {
+            overlayWin.hide();
+          } else {
+            overlayWin.showInactive();
+          }
+        }
+      });
+      console.log(`[Hotkeys] Registered System Hotkey ${overlayAccelerator} for Toggle Overlay`);
+    }
+  } catch (err) {
+    console.error(`[Hotkeys] Failed to register overlay toggle:`, err);
+  }
   workflows.forEach((wf) => {
     WORKFLOW_REGISTRY.set(wf.id, wf);
     if (wf.hotkey && wf.hotkey.key) {

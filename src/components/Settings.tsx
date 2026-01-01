@@ -1,11 +1,20 @@
 import { useState, useEffect } from 'react';
 import '../styles/Dashboard.css'; // Reuse existing styles for consistency
 
-export default function Settings() {
+interface SettingsProps {
+    onValidityChange?: (isValid: boolean) => void;
+}
+
+export default function Settings({ onValidityChange }: SettingsProps) {
     const [apiKey, setApiKey] = useState("");
     const [defaultBrowser, setDefaultBrowser] = useState("Google Chrome");
     const [initialLoad, setInitialLoad] = useState(false);
     const [theme, setTheme] = useState("dark");
+    const [overlayHotkey, setOverlayHotkey] = useState<{ mods: string[], key: string }>({ mods: ["cmd", "alt"], key: "O" });
+
+    // Conflict detection state
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [workflows, setWorkflows] = useState<any[]>([]);
 
     useEffect(() => {
         // Load initial settings
@@ -16,6 +25,14 @@ export default function Settings() {
                     setApiKey(prefs.apiKey || "");
                     setDefaultBrowser(prefs.defaultBrowser || "Google Chrome");
                     setTheme(prefs.theme || "dark");
+                    if (prefs.overlayHotkey) {
+                        setOverlayHotkey(prefs.overlayHotkey);
+                    }
+                }
+                // Load workflows for conflict detection
+                if (window.electron && window.electron.getWorkflows) {
+                    const wfs = await window.electron.getWorkflows();
+                    setWorkflows(wfs);
                 }
             } catch (e) {
                 console.error("Failed to load settings", e);
@@ -26,32 +43,53 @@ export default function Settings() {
         load();
     }, []);
 
-    const savePreferences = async (newPrefs: { apiKey: string, defaultBrowser: string, theme: string }) => {
+    const savePreferences = async (newPrefs: { apiKey: string, defaultBrowser: string, theme: string, overlayHotkey?: { mods: string[], key: string } }) => {
         try {
             await window.electron.savePreferences({
                 apiKey: newPrefs.apiKey,
                 defaultBrowser: newPrefs.defaultBrowser,
-                theme: newPrefs.theme as "light" | "dark"
+                theme: newPrefs.theme as "light" | "dark",
+                overlayHotkey: newPrefs.overlayHotkey
             });
         } catch (e) {
             console.error("Failed to auto-save settings", e);
         }
     };
 
+    // Check for conflicts
+    const getConflict = () => {
+        const conflict = workflows.find(w =>
+            w.hotkey?.key === overlayHotkey.key &&
+            JSON.stringify([...(w.hotkey?.mods || [])].sort()) === JSON.stringify([...overlayHotkey.mods].sort())
+        );
+        return conflict ? `Conflict: "${conflict.name}" uses this hotkey.` : null;
+    };
+
+    const conflictError = getConflict();
+
+    // Report Validity
+    useEffect(() => {
+        if (onValidityChange) {
+            onValidityChange(!conflictError);
+        }
+    }, [conflictError, onValidityChange]);
+
     // Autosave API Key (Debounced)
     useEffect(() => {
         if (!initialLoad) return;
         const timer = setTimeout(() => {
-            savePreferences({ apiKey, defaultBrowser, theme });
+            savePreferences({ apiKey, defaultBrowser, theme, overlayHotkey });
         }, 800);
         return () => clearTimeout(timer);
     }, [apiKey]);
 
-    // Autosave others (Immediate)
+    // Autosave others (Immediate, if valid)
     useEffect(() => {
         if (!initialLoad) return;
-        savePreferences({ apiKey, defaultBrowser, theme });
-    }, [defaultBrowser, theme]);
+        if (!conflictError) {
+            savePreferences({ apiKey, defaultBrowser, theme, overlayHotkey });
+        }
+    }, [defaultBrowser, theme, overlayHotkey]);
 
     // Apply theme immediately when changed in settings for preview
     useEffect(() => {
@@ -89,6 +127,37 @@ export default function Settings() {
                             { value: "light", label: "Light Mode" },
                         ]}
                     />
+                </div>
+
+                <div className="form-group">
+                    <label>Overlay Hotkey</label>
+                    <div className="edit-hotkey-simple" style={{ marginTop: '0.5rem' }}>
+                        {["cmd", "alt", "ctrl", "shift"].map(mod => (
+                            <label key={mod} className={`mod-chip ${overlayHotkey.mods.includes(mod) ? 'selected' : ''} ${conflictError ? 'error' : ''}`}>
+                                <input
+                                    type="checkbox"
+                                    checked={overlayHotkey.mods.includes(mod)}
+                                    onChange={e => {
+                                        const newMods = e.target.checked
+                                            ? [...overlayHotkey.mods, mod]
+                                            : overlayHotkey.mods.filter(m => m !== mod);
+                                        setOverlayHotkey({ ...overlayHotkey, mods: newMods });
+                                    }}
+                                />
+                                {mod}
+                            </label>
+                        ))}
+                        <input
+                            className={`key-input ${conflictError ? 'error' : ''}`}
+                            value={overlayHotkey.key}
+                            onChange={e => setOverlayHotkey({ ...overlayHotkey, key: e.target.value.toUpperCase().slice(0, 1) })}
+                            placeholder="Key"
+                        />
+                    </div>
+                    {conflictError && <div className="error-badge" style={{ marginTop: '0.5rem' }}>{conflictError}</div>}
+                    <p className="help-text">
+                        Global hotkey to toggle the overlay bar.
+                    </p>
                 </div>
 
                 <div className="form-group">

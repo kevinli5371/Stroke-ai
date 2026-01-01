@@ -421,6 +421,7 @@ html {
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
+    align-items: center;
 }
 
 .mod-chip {
@@ -437,17 +438,30 @@ html {
     color: var(--text-inverse);
 }
 
+.mod-chip.error {
+    border-color: #ff4d4f;
+    /* Removed color/bg to preserve selected state visibility */
+}
+
 .mod-chip input {
     display: none;
 }
 
-.key-input {
-    width: 2rem;
+.key-input,
+.form-group .key-input {
+    width: 3rem;
     text-align: center;
     background: var(--bg-input);
     border: 1px solid var(--border-subtle);
     color: var(--text-main);
     border-radius: 4px;
+    padding: 0.4rem;
+}
+
+.key-input.error,
+.form-group .key-input.error {
+    border-color: #ff4d4f;
+    /* Removed color/bg to preserve input text visibility */
 }
 
 .edit-actions {
