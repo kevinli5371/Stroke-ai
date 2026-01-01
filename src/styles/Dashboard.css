@@ -357,7 +357,7 @@ html {
 
 /* Data Display */
 .hotkey-badge {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--bg-element);
     color: var(--text-main);
     font-size: 0.75rem;
     padding: 0.25rem 0.5rem;
