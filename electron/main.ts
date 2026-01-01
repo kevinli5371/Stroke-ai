@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { app, BrowserWindow, screen, ipcMain, globalShortcut } from 'electron'
+import { app, BrowserWindow, screen, ipcMain, globalShortcut, Tray, Menu, nativeImage } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import http from 'node:http'
@@ -47,6 +47,8 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 
 
 let dashboardWin: BrowserWindow | null
 let overlayWin: BrowserWindow | null
+let tray: Tray | null = null
+let isQuitting = false
 
 function createDashboardWindow() {
   dashboardWin = new BrowserWindow({
@@ -78,6 +80,47 @@ function createDashboardWindow() {
   } else {
     dashboardWin.loadFile(path.join(RENDERER_DIST, 'index.html'))
   }
+
+  // Prevent closing when clicking X, unless quitting
+  dashboardWin.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault()
+      dashboardWin?.hide()
+    }
+    return false
+  })
+}
+
+function createTray() {
+  const iconPath = path.join(process.env.APP_ROOT, 'build', 'tray.png');
+  // Resize to 22x22 for standard macOS menu bar size
+  const icon = nativeImage.createFromPath(iconPath).resize({ width: 22, height: 22 });
+  // template image: adapts to light/dark mode automatically
+  icon.setTemplateImage(true);
+
+  tray = new Tray(icon);
+  tray.setToolTip('Stroke.ai');
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Open Dashboard',
+      click: () => dashboardWin?.show()
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        isQuitting = true
+        app.quit()
+      }
+    }
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  tray.on('double-click', () => {
+    dashboardWin?.show();
+  });
 }
 
 // -- HTTP SERVER TO LISTEN FOR TRIGGERS --
@@ -908,6 +951,30 @@ async function triggerWorkflow(workflowId: string, workflowName: string) {
 
 // Initial Load
 app.whenReady().then(() => {
+  createTray();
   refreshRegistryAndHotkeys();
 });
+
+// Quit when all windows are closed, except on macOS. There, it's common
+// for applications and their menu bar to stay active until the user quits explicitly with Cmd + Q.
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
+})
+
+app.on('activate', () => {
+  // On OS X it's common to re-create a window in the app when the
+  // dock icon is clicked and there are no other windows open.
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createDashboardWindow()
+    createOverlayWindow()
+  } else {
+    dashboardWin?.show()
+  }
+})
+
+app.on('before-quit', () => {
+  isQuitting = true
+})
 

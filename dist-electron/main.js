@@ -10,7 +10,7 @@ var __privateAdd = (obj, member, value) => member.has(obj) ? __typeError("Cannot
 var __privateSet = (obj, member, value, setter) => (__accessCheck(obj, member, "write to private field"), setter ? setter.call(obj, value) : member.set(obj, value), value);
 var __privateMethod = (obj, member, method) => (__accessCheck(obj, member, "access private method"), method);
 var _validator, _encryptionKey, _options, _defaultValues, _isInMigration, _watcher, _watchFile, _debouncedChangeHandler, _Conf_instances, prepareOptions_fn, setupValidator_fn, captureSchemaDefaults_fn, applyDefaultValues_fn, configureSerialization_fn, resolvePath_fn, initializeStore_fn, runMigrations_fn;
-import electron, { app as app$1, BrowserWindow, ipcMain as ipcMain$1, globalShortcut, screen, clipboard, shell as shell$1 } from "electron";
+import electron, { app as app$1, BrowserWindow, ipcMain as ipcMain$1, globalShortcut, nativeImage, Tray, Menu, screen, clipboard, shell as shell$1 } from "electron";
 import { fileURLToPath } from "node:url";
 import path$2 from "node:path";
 import http$1 from "node:http";
@@ -22475,6 +22475,8 @@ const RENDERER_DIST = path$2.join(process.env.APP_ROOT, "dist");
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path$2.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
 let dashboardWin;
 let overlayWin;
+let tray = null;
+let isQuitting = false;
 function createDashboardWindow() {
   dashboardWin = new BrowserWindow({
     width: 1250,
@@ -22503,6 +22505,38 @@ function createDashboardWindow() {
   } else {
     dashboardWin.loadFile(path$2.join(RENDERER_DIST, "index.html"));
   }
+  dashboardWin.on("close", (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      dashboardWin == null ? void 0 : dashboardWin.hide();
+    }
+    return false;
+  });
+}
+function createTray() {
+  const iconPath = path$2.join(process.env.APP_ROOT, "build", "tray.png");
+  const icon = nativeImage.createFromPath(iconPath).resize({ width: 22, height: 22 });
+  icon.setTemplateImage(true);
+  tray = new Tray(icon);
+  tray.setToolTip("Stroke.ai");
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: "Open Dashboard",
+      click: () => dashboardWin == null ? void 0 : dashboardWin.show()
+    },
+    { type: "separator" },
+    {
+      label: "Quit",
+      click: () => {
+        isQuitting = true;
+        app$1.quit();
+      }
+    }
+  ]);
+  tray.setContextMenu(contextMenu);
+  tray.on("double-click", () => {
+    dashboardWin == null ? void 0 : dashboardWin.show();
+  });
 }
 let SERVER_PORT = 4444;
 function startLocalServer(retryCount = 0) {
@@ -23130,7 +23164,24 @@ async function triggerWorkflow(workflowId, workflowName) {
   }
 }
 app$1.whenReady().then(() => {
+  createTray();
   refreshRegistryAndHotkeys();
+});
+app$1.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app$1.quit();
+  }
+});
+app$1.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createDashboardWindow();
+    createOverlayWindow();
+  } else {
+    dashboardWin == null ? void 0 : dashboardWin.show();
+  }
+});
+app$1.on("before-quit", () => {
+  isQuitting = true;
 });
 export {
   MAIN_DIST,
