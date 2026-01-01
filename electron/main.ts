@@ -729,7 +729,6 @@ const TOOLS: Record<string, (input: any) => Promise<any>> = {
     // We always use System Events because many apps (Spotify, Chrome) don't support "set bounds" directly
     const script = `
       tell application "${appName || "System Events"}" to activate
-      delay 0.2
       tell application "System Events"
         set targetProc to ${processTarget}
         set frontWindow to first window of targetProc

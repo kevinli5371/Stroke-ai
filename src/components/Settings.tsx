@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { mapKeyboardEventToElectronKey } from '../utils/keyboard';
 import '../styles/Dashboard.css'; // Reuse existing styles for consistency
 
 interface SettingsProps {
@@ -150,7 +151,14 @@ export default function Settings({ onValidityChange }: SettingsProps) {
                         <input
                             className={`key-input ${conflictError ? 'error' : ''}`}
                             value={overlayHotkey.key}
-                            onChange={e => setOverlayHotkey({ ...overlayHotkey, key: e.target.value.toUpperCase().slice(0, 1) })}
+                            onKeyDown={(e) => {
+                                const validKey = mapKeyboardEventToElectronKey(e);
+                                if (validKey) {
+                                    e.preventDefault();
+                                    setOverlayHotkey({ ...overlayHotkey, key: validKey });
+                                }
+                            }}
+                            readOnly
                             placeholder="Key"
                         />
                     </div>

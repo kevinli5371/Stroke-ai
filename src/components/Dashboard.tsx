@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import Settings from "./Settings";
+import { mapKeyboardEventToElectronKey } from "../utils/keyboard";
 import "../styles/Dashboard.css";
 
 export default function Dashboard() {
@@ -268,6 +269,14 @@ export default function Dashboard() {
                                                         placeholder="Describe what you want this workflow to do..."
                                                         value={command}
                                                         onChange={(e) => setCommand(e.target.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                                e.preventDefault();
+                                                                if (command.trim() && !loading) {
+                                                                    handleSubmit(e);
+                                                                }
+                                                            }
+                                                        }}
                                                         disabled={loading}
                                                         autoFocus
                                                     />
@@ -324,8 +333,15 @@ export default function Dashboard() {
                                                             <input
                                                                 className="key-input"
                                                                 value={editHotkey.key}
-                                                                onChange={e => setEditHotkey({ ...editHotkey, key: e.target.value.toUpperCase().slice(0, 1) })}
-                                                                placeholder="K"
+                                                                onKeyDown={(e) => {
+                                                                    const validKey = mapKeyboardEventToElectronKey(e);
+                                                                    if (validKey) {
+                                                                        e.preventDefault();
+                                                                        setEditHotkey({ ...editHotkey, key: validKey });
+                                                                    }
+                                                                }}
+                                                                readOnly
+                                                                placeholder="Key"
                                                             />
                                                         </div>
                                                         <div className="edit-actions">
