@@ -1,15 +1,24 @@
-/* Dark Craft-like Theme */
+/* Dark Craft-like Theme (Default) */
 /* Global Vars */
 :root {
-    /* Liquid Glass Theme: Super Subtle */
-    /* Almost opaque, just a hint of depth */
+    /* Liquid Glass Theme: Super Subtle - Dark */
     --bg-app: rgba(28, 28, 30, 0.97);
     --bg-card: rgba(44, 44, 46, 0.98);
     --bg-sidebar: rgba(30, 30, 32, 0.92);
+    --bg-input: rgba(0, 0, 0, 0.2);
+    --bg-input-focus: rgba(0, 0, 0, 0.15);
 
     --text-main: #ffffff;
     --text-muted: #98989d;
+    --text-inverse: #000000;
     --accent: #0a84ff;
+
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-active: rgba(255, 255, 255, 0.2);
+
+    --bg-hover: rgba(255, 255, 255, 0.05);
+    --bg-hover-strong: rgba(255, 255, 255, 0.08);
+    --bg-element: #3a3a3c;
 
     --radius-lg: 16px;
     --radius-md: 10px;
@@ -17,7 +26,30 @@
 
     --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.2);
     --shadow-floating: 0 8px 32px rgba(0, 0, 0, 0.3);
-    /* Deeper shadow for floating depth */
+}
+
+/* Light Theme Overrides */
+[data-theme="light"] {
+    --bg-app: rgba(245, 245, 247, 0.97);
+    --bg-card: rgba(255, 255, 255, 0.98);
+    --bg-sidebar: rgba(235, 235, 240, 0.92);
+    --bg-input: rgba(0, 0, 0, 0.05);
+    --bg-input-focus: rgba(0, 0, 0, 0.02);
+
+    --text-main: #000000;
+    --text-muted: #6e6e73;
+    --text-inverse: #ffffff;
+    --accent: #007aff;
+
+    --border-subtle: rgba(0, 0, 0, 0.1);
+    --border-active: rgba(0, 0, 0, 0.2);
+
+    --bg-hover: rgba(0, 0, 0, 0.05);
+    --bg-hover-strong: rgba(0, 0, 0, 0.08);
+    --bg-element: #e5e5ea;
+
+    --shadow-card: 0 4px 12px rgba(0, 0, 0, 0.05);
+    --shadow-floating: 0 8px 32px rgba(0, 0, 0, 0.15);
 }
 
 * {
@@ -43,7 +75,7 @@ html {
     height: 100vh;
     width: 100vw;
     /* Frosted Glass: High opacity + heavy blur */
-    background: linear-gradient(135deg, rgba(35, 35, 40, 0.98) 0%, rgba(25, 25, 28, 0.99) 100%);
+    background: var(--bg-app);
     /* REMOVED backdrop-filter to fix square corners artifact */
 
     /* If window is transparent, this defines the shape */
@@ -132,12 +164,12 @@ html {
 }
 
 .nav-item:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--bg-hover);
     color: var(--text-main);
 }
 
 .nav-item.active {
-    background: #3a3a3c;
+    background: var(--bg-element);
     color: var(--text-main);
 }
 
@@ -234,7 +266,7 @@ html {
 
 /* Command Card (Full Width, Static) */
 .command-card {
-    background: linear-gradient(135deg, #3a3a3c 0%, #2c2c2e 100%);
+    background: var(--bg-card);
     margin-bottom: 2rem;
     /* Static override */
     transition: none;
@@ -392,7 +424,7 @@ html {
 }
 
 .mod-chip {
-    background: #3a3a3c;
+    background: var(--bg-element);
     padding: 0.25rem 0.5rem;
     border-radius: 4px;
     font-size: 0.75rem;
@@ -402,7 +434,7 @@ html {
 
 .mod-chip.selected {
     background: var(--text-main);
-    color: #000;
+    color: var(--text-inverse);
 }
 
 .mod-chip input {
@@ -433,11 +465,11 @@ html {
 
 .edit-actions button:first-child {
     background: var(--text-main);
-    color: #000;
+    color: var(--text-inverse);
 }
 
 .edit-actions button.secondary {
-    background: #3a3a3c;
+    background: var(--bg-element);
     color: var(--text-main);
 }
 
@@ -451,6 +483,7 @@ html {
     margin-bottom: 1.5rem;
     font-size: 0.9rem;
 }
+
 /* Modal Styles */
 .modal-overlay {
     position: fixed;
@@ -465,29 +498,63 @@ html {
     align-items: center;
     z-index: 1000;
     -webkit-app-region: no-drag;
+    animation: fadeIn 0.2s ease-out forwards;
+}
+
+.modal-overlay.closing {
+    animation: modalFadeOut 0.2s ease-in forwards;
+    pointer-events: none;
 }
 
 .modal-content {
-    background: linear-gradient(135deg, #2c2c2e 0%, #1c1c1e 100%);
+    background: var(--bg-card);
     border-radius: var(--radius-lg);
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
     width: 90%;
     max-width: 500px;
     padding: 2rem;
-    animation: modalPop 0.2s ease-out;
+    animation: modalPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    /* iOS-like spring-ish ease */
     display: flex;
     flex-direction: column;
 }
 
-@keyframes modalPop {
+.modal-content.closing {
+    animation: modalPopOut 0.2s ease-in forwards;
+}
+
+@keyframes modalPopIn {
     from {
         opacity: 0;
-        transform: scale(0.95);
+        transform: scale(0.96) translateY(10px);
     }
+
     to {
         opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+@keyframes modalPopOut {
+    from {
+        opacity: 1;
         transform: scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+}
+
+@keyframes modalFadeOut {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0;
     }
 }
 
@@ -528,7 +595,7 @@ html {
 }
 
 .modal-body textarea {
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--bg-input);
     border: 1px solid rgba(255, 255, 255, 0.1);
     color: var(--text-main);
     padding: 1rem;
@@ -542,8 +609,8 @@ html {
 }
 
 .modal-body textarea:focus {
-    border-color: var(--text-muted);
-    background: rgba(0, 0, 0, 0.3);
+    border-color: var(--accent);
+    background: var(--bg-input-focus);
 }
 
 .modal-actions {
@@ -555,7 +622,7 @@ html {
 
 .btn-primary {
     background: var(--text-main);
-    color: #000;
+    color: var(--text-inverse);
     border: none;
     padding: 0.6rem 1.2rem;
     border-radius: var(--radius-md);
@@ -575,7 +642,7 @@ html {
     height: 32px;
     border-radius: 50%;
     background: var(--text-main);
-    color: #000;
+    color: var(--text-inverse);
     border: none;
     font-size: 1.5rem;
     font-weight: 400;
@@ -588,7 +655,229 @@ html {
     padding-bottom: 2px;
 }
 
-.header-add-btn:hover {
-    transform: scale(1.05);
-    background-color: #ffffff;
+
+/* Settings Page */
+.settings-container {
+    padding: 1rem;
+    width: 100%;
+    /* Full width as requested */
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* Global Animation Utility */
+.animate-slide-up {
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.settings-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-header h1 {
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 700;
+}
+
+
+.settings-form {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.form-group label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-main);
+    margin-left: 2px;
+}
+
+.form-group input,
+.form-group select {
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-main);
+    padding: 0.8rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+    outline: none;
+    transition: all 0.2s;
+    width: 100%;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    border-color: var(--text-muted);
+    background: rgba(0, 0, 0, 0.4);
+}
+
+/* Custom Select Arrow */
+.form-group select {
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2398989d%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: right 1rem top 50%;
+    background-size: 0.8rem auto;
+}
+
+.help-text {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: 0;
+    margin-left: 2px;
+    line-height: 1.4;
+}
+
+.form-actions {
+    margin-top: 1rem;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.save-btn {
+    background: var(--text-main);
+    color: #000;
+    border: none;
+    padding: 0.8rem 2rem;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: transform 0.1s;
+}
+
+.save-btn:active {
+    transform: scale(0.98);
+}
+
+.save-btn:disabled {
+    opacity: 0.7;
+    cursor: default;
+}
+
+.status-message {
+    margin-top: 1rem;
+    padding: 0.8rem;
+    border-radius: var(--radius-md);
+    text-align: center;
+    font-size: 0.9rem;
+    animation: fadeIn 0.3s;
+}
+
+.status-message.success {
+    background: rgba(48, 209, 88, 0.1);
+    color: #30d158;
+    border: 1px solid rgba(48, 209, 88, 0.2);
+}
+
+.status-message.error {
+    background: rgba(255, 69, 58, 0.1);
+    color: #ff453a;
+    border: 1px solid rgba(255, 69, 58, 0.2);
+}
+
+/* Custom Dropdown */
+.custom-select-container {
+    position: relative;
+    width: 100%;
+}
+
+.custom-select-trigger {
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-main);
+    padding: 0.8rem 1rem;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.custom-select-trigger:hover,
+.custom-select-trigger.is-open {
+    background: var(--bg-hover);
+    border-color: var(--text-muted);
+}
+
+.custom-select-trigger::after {
+    content: "";
+    display: block;
+    width: 0.8rem;
+    height: 0.8rem;
+    background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2398989d%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    transition: transform 0.2s;
+}
+
+.custom-select-trigger.is-open::after {
+    transform: rotate(180deg);
+}
+
+.custom-select-options {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-floating);
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    animation: fadeIn 0.15s ease-out;
+}
+
+.custom-select-options.is-open {
+    display: flex;
+}
+
+.custom-option {
+    padding: 0.8rem 1rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: all 0.1s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.custom-option:hover {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+
+.custom-option.selected {
+    color: var(--text-main);
+    background: var(--bg-hover-strong);
 }

@@ -426,6 +426,7 @@ const workflowStore = new Store<{ workflows: Workflow[] }>({
 interface Preferences {
   apiKey: string;
   defaultBrowser: string;
+  theme?: "light" | "dark";
 }
 
 const preferencesStore = new Store<{ preferences: Preferences }>({

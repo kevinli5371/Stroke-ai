@@ -8,6 +8,7 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [isModalClosing, setIsModalClosing] = useState(false);
 
     // Data State
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -16,12 +17,40 @@ export default function Dashboard() {
     const [workflowsError, setWorkflowsError] = useState<string | null>(null);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [recentRuns, setRecentRuns] = useState<any[]>([]);
     const [runsLoading, setRunsLoading] = useState(false);
     const [runsError, setRunsError] = useState<string | null>(null);
 
+    function handleCloseModal() {
+        setIsModalClosing(true);
+        setTimeout(() => {
+            setIsCreateModalOpen(false);
+            setIsModalClosing(false);
+        }, 200);
+    }
+
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (isCreateModalOpen && e.key === "Escape") {
+                handleCloseModal();
+            }
+        };
+        window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [isCreateModalOpen]);
+
     // Initial Fetch
     useEffect(() => {
+        // Load Theme
+        if (window.electron?.getPreferences) {
+            window.electron.getPreferences().then(prefs => {
+                if (prefs.theme) {
+                    document.documentElement.setAttribute('data-theme', prefs.theme);
+                }
+            }).catch(e => console.error("Failed to load theme", e));
+        }
+
         fetchWorkflows();
         fetchRecentRuns();
 
@@ -74,8 +103,9 @@ export default function Dashboard() {
             if (data.workflow) {
                 await window.electron.saveWorkflow(data.workflow);
                 await fetchWorkflows();
+                await fetchWorkflows();
                 setCommand(""); // Reset command on success
-                setIsCreateModalOpen(false);
+                handleCloseModal();
             }
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : String(err));
@@ -165,7 +195,7 @@ export default function Dashboard() {
             </nav>
 
             <div className="sidebar-footer">
-                <div className="status-indicator placeholder">placeholder</div>
+                {/* <div className="status-indicator placeholder">placeholder</div> */}
             </div>
         </aside>
     );
@@ -177,16 +207,19 @@ export default function Dashboard() {
 
             <main className="main-content">
                 {activeTab === 'settings' ? (
-                    <Settings onBack={() => setActiveTab('home')} />
+                    <Settings />
                 ) : (
                     <>
-                        <header className="content-header">
+                        <header className="content-header animate-slide-up" key={`${activeTab}-header`}>
                             <h1>{activeTab === 'home' ? 'My Workflows' : 'Activity Log'}</h1>
                             <div className="header-actions">
                                 {activeTab === 'home' && (
                                     <button
                                         className="header-add-btn"
-                                        onClick={() => setIsCreateModalOpen(true)}
+                                        onClick={() => {
+                                            setIsCreateModalOpen(true);
+                                            setIsModalClosing(false);
+                                        }}
                                         title="Create New Workflow"
                                     >
                                         +
@@ -199,11 +232,11 @@ export default function Dashboard() {
                             <>
                                 {/* Create Workflow Modal */}
                                 {isCreateModalOpen && (
-                                    <div className="modal-overlay" onClick={() => setIsCreateModalOpen(false)}>
-                                        <div className="modal-content" onClick={e => e.stopPropagation()}>
+                                    <div className={`modal-overlay ${isModalClosing ? 'closing' : ''}`} onClick={handleCloseModal}>
+                                        <div className={`modal-content ${isModalClosing ? 'closing' : ''}`} onClick={e => e.stopPropagation()}>
                                             <div className="modal-header">
                                                 <h2>Create New Workflow</h2>
-                                                <button className="close-button" onClick={() => setIsCreateModalOpen(false)}>×</button>
+                                                <button className="close-button" onClick={handleCloseModal}>×</button>
                                             </div>
                                             <div className="modal-body">
                                                 <form onSubmit={handleSubmit}>
@@ -218,7 +251,7 @@ export default function Dashboard() {
                                                         <button
                                                             type="button"
                                                             className="btn-secondary"
-                                                            onClick={() => setIsCreateModalOpen(false)}
+                                                            onClick={handleCloseModal}
                                                             style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
                                                         >
                                                             Cancel
@@ -234,79 +267,81 @@ export default function Dashboard() {
                                     </div>
                                 )}
 
-                                {workflowsError && <div className="error-banner">{workflowsError}</div>}
+                                {workflowsError && <div className="error-banner animate-slide-up">{workflowsError}</div>}
 
-                                <MasonryGrid
-                                    items={workflows}
-                                    renderItem={(wf) => (
-                                        <div key={wf.id} className="card workflow-card">
-                                            {editingId === wf.id ? (
-                                                <div className="edit-mode">
-                                                    <input
-                                                        value={editName}
-                                                        onChange={e => setEditName(e.target.value)}
-                                                        className="edit-name-input"
-                                                    />
-                                                    <div className="edit-hotkey-simple">
-                                                        {["cmd", "alt", "ctrl", "shift"].map(mod => (
-                                                            <label key={mod} className={`mod-chip ${editHotkey.mods.includes(mod) ? 'selected' : ''}`}>
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={editHotkey.mods.includes(mod)}
-                                                                    onChange={e => {
-                                                                        const newMods = e.target.checked
-                                                                            ? [...editHotkey.mods, mod]
-                                                                            : editHotkey.mods.filter(m => m !== mod);
-                                                                        setEditHotkey({ ...editHotkey, mods: newMods });
-                                                                    }}
-                                                                />
-                                                                {mod}
-                                                            </label>
-                                                        ))}
+                                <div className="animate-slide-up">
+                                    <MasonryGrid
+                                        items={workflows}
+                                        renderItem={(wf) => (
+                                            <div key={wf.id} className="card workflow-card">
+                                                {editingId === wf.id ? (
+                                                    <div className="edit-mode">
                                                         <input
-                                                            className="key-input"
-                                                            value={editHotkey.key}
-                                                            onChange={e => setEditHotkey({ ...editHotkey, key: e.target.value.toUpperCase().slice(0, 1) })}
-                                                            placeholder="K"
+                                                            value={editName}
+                                                            onChange={e => setEditName(e.target.value)}
+                                                            className="edit-name-input"
                                                         />
-                                                    </div>
-                                                    <div className="edit-actions">
-                                                        <button onClick={() => handleSaveEdit(wf.id)}>Save</button>
-                                                        <button onClick={() => setEditingId(null)} className="secondary">Cancel</button>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <div className="card-header">
-                                                        <div className="card-title">{wf.name || "Untitled"}</div>
-                                                        <div className="card-menu">
-                                                            <button onClick={() => startEditing(wf)}>Edit</button>
-                                                            <button onClick={() => handleDelete(wf.id)}>Del</button>
-                                                        </div>
-                                                    </div>
-                                                    <div className="hotkey-badge">
-                                                        {wf.hotkey?.mods?.join("+")} + {wf.hotkey?.key}
-                                                    </div>
-                                                    {wf.steps && wf.steps.length > 0 && (
-                                                        <div className="steps-list">
-                                                            {wf.steps.map((s: any, idx: number) => (
-                                                                <div key={idx} className="step-item">
-                                                                    - {s.tool} {s.input && Object.keys(s.input).length > 0 ? `(${JSON.stringify(s.input)})` : ""}
-                                                                </div>
+                                                        <div className="edit-hotkey-simple">
+                                                            {["cmd", "alt", "ctrl", "shift"].map(mod => (
+                                                                <label key={mod} className={`mod-chip ${editHotkey.mods.includes(mod) ? 'selected' : ''}`}>
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={editHotkey.mods.includes(mod)}
+                                                                        onChange={e => {
+                                                                            const newMods = e.target.checked
+                                                                                ? [...editHotkey.mods, mod]
+                                                                                : editHotkey.mods.filter(m => m !== mod);
+                                                                            setEditHotkey({ ...editHotkey, mods: newMods });
+                                                                        }}
+                                                                    />
+                                                                    {mod}
+                                                                </label>
                                                             ))}
+                                                            <input
+                                                                className="key-input"
+                                                                value={editHotkey.key}
+                                                                onChange={e => setEditHotkey({ ...editHotkey, key: e.target.value.toUpperCase().slice(0, 1) })}
+                                                                placeholder="K"
+                                                            />
                                                         </div>
-                                                    )}
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
-                                />
-                                {workflowsLoading && <div className="loading-state">Loading workflows...</div>}
+                                                        <div className="edit-actions">
+                                                            <button onClick={() => handleSaveEdit(wf.id)}>Save</button>
+                                                            <button onClick={() => setEditingId(null)} className="secondary">Cancel</button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="card-header">
+                                                            <div className="card-title">{wf.name || "Untitled"}</div>
+                                                            <div className="card-menu">
+                                                                <button onClick={() => startEditing(wf)}>Edit</button>
+                                                                <button onClick={() => handleDelete(wf.id)}>Del</button>
+                                                            </div>
+                                                        </div>
+                                                        <div className="hotkey-badge">
+                                                            {wf.hotkey?.mods?.join("+")} + {wf.hotkey?.key}
+                                                        </div>
+                                                        {wf.steps && wf.steps.length > 0 && (
+                                                            <div className="steps-list">
+                                                                {wf.steps.map((s: any, idx: number) => (
+                                                                    <div key={idx} className="step-item">
+                                                                        - {s.tool} {s.input && Object.keys(s.input).length > 0 ? `(${JSON.stringify(s.input)})` : ""}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
+                                    />
+                                </div>
+                                {workflowsLoading && <div className="loading-state animate-slide-up">Loading workflows...</div>}
                             </>
                         )}
 
                         {activeTab === 'runs' && (
-                            <div className="runs-list-container">
+                            <div className="runs-list-container animate-slide-up">
                                 {runsError && <div className="error-banner">{runsError}</div>}
                                 {runsLoading && <div className="loading-state">Loading run history...</div>}
 
