@@ -107,6 +107,23 @@ export default function Dashboard() {
             if (data.status !== "success") throw new Error(data.message || "Failed");
 
             if (data.workflow) {
+                const newHk = data.workflow.hotkey;
+                if (newHk) {
+                    // Check vs Overlay
+                    if (newHk.key === overlayHotkey.key &&
+                        JSON.stringify([...(newHk.mods || [])].sort()) === JSON.stringify([...overlayHotkey.mods].sort())) {
+                        throw new Error(`Generated hotkey ${newHk.mods.join("+")}+${newHk.key} conflicts with Overlay. Please try again.`);
+                    }
+                    // Check vs Existing
+                    const isDuplicate = workflows.some(w =>
+                        w.hotkey?.key === newHk.key &&
+                        JSON.stringify([...(w.hotkey?.mods || [])].sort()) === JSON.stringify([...(newHk.mods || [])].sort())
+                    );
+                    if (isDuplicate) {
+                        throw new Error(`Generated hotkey ${newHk.mods.join("+")}+${newHk.key} is already in use. Please try again.`);
+                    }
+                }
+
                 await window.electron.saveWorkflow(data.workflow);
                 await fetchWorkflows();
                 await fetchWorkflows();

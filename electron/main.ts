@@ -298,6 +298,9 @@ Given a natural language command, you respond with a JSON workflow.
 
 Device Context:
 You will receive a "context" JSON describing the user's environment and existing hotkeys.
+The "reserved_hotkeys" list contains keys that are ALREADY IN USE. You MUST NOT use them.
+If you suggest a hotkey that is in "reserved_hotkeys", the system will reject your plan.
+Pick a unique key (e.g. use a different letter).
 
 Tools Available (Client-Side Execution):
 1. "debug_log": { text: string }
