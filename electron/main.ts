@@ -3,6 +3,7 @@ import { app, BrowserWindow, screen, ipcMain, globalShortcut, Tray, Menu, native
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import http from 'node:http'
+import os from 'node:os'
 import Store from 'electron-store'
 import OpenAI from 'openai'
 import dotenv from 'dotenv'
@@ -297,7 +298,7 @@ You are an automation planner for a macOS keyboard-shortcut agent.
 Given a natural language command, you respond with a JSON workflow.
 
 Device Context:
-You will receive a "context" JSON describing the user's environment and existing hotkeys.
+You will receive a "context" JSON object with the user's name, environment and existing hotkeys.
 The "reserved_hotkeys" list contains keys that are ALREADY IN USE. You MUST NOT use them.
 If you suggest a hotkey that is in "reserved_hotkeys", the system will reject your plan.
 Pick a unique key (e.g. use a different letter).
@@ -323,6 +324,8 @@ Usage Rules:
 - Return ONLY JSON.
 - Do NOT use reserved hotkeys. Check "reserved_hotkeys" in the context. If a conflict exists, choose a different key.
 - Prefer efficient tool chains.
+- Use the provided context (e.g. username) to personalize instructions.
+- For transform_clipboard: If the task implies a personal response (like an email reply), explicitly tell the LLM to sign off or refer to the user by their name from the context.
 - CRITICAL: If the user wants to modify, explain, or generate text based on their selection, use "transform_clipboard" instead of opening a browser. It is much faster.
 
 ALWAYS respond with ONLY the JSON object. No backticks, no markdown, no explanation.
@@ -387,6 +390,7 @@ function buildContextLayer(): any {
   return {
     environment: {
       os: "macOS",
+      name: os.userInfo().username,
       default_browser: preferencesStore.get("preferences").defaultBrowser || "Google Chrome",
     },
     preferences: {
@@ -436,10 +440,11 @@ async function planWorkflow(command: string): Promise<any> {
 
 async function transformText(text: string, instruction: string): Promise<string> {
   const client = getOpenAI();
+  const username = os.userInfo().username;
   const completion = await client.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: "You are a helpful text transformation assistant. Return ONLY the transformed text. No explanation." },
+      { role: "system", content: `You are a helpful text transformation assistant. The user's name is ${username}. Return ONLY the transformed text. No explanation.` },
       { role: "user", content: `Instruction: ${instruction}\n\nInput Text:\n${text}` }
     ]
   });
