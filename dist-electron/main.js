@@ -22689,6 +22689,9 @@ Tools Available (Client-Side Execution):
    - Use this for "rewrite this", "explain this", "tailor this prompt", "audit this code", OR "draft a reply to this".
 12. "snap_window": { target: "left" | "right" | "top" | "bottom" | "maximize", app_name?: string }
     - If you just opened an app, PASS "app_name" to ensure the correct window is snapped.
+13. "press_key": { key: string, mods?: string[] }
+    - Simulates a keystroke. "key" is a single character (e.g. "c") or special key.
+    - "mods" is an array: "cmd", "alt", "ctrl", "shift".
 
 Usage Rules:
 - Return ONLY JSON.
@@ -22696,16 +22699,18 @@ Usage Rules:
 - Do NOT use reserved hotkeys. Check "reserved_hotkeys" in the context. If a conflict exists, choose a different key.
 - Prefer efficient tool chains.
 - Use the provided context (e.g. username) to personalize instructions.
-- For transform_clipboard: If the task implies a personal response (like an email reply), explicitly tell the LLM to sign off or refer to the user by their name from the context.
-- CRITICAL: If the user wants to modify, explain, or generate text based on their selection, use "transform_clipboard" instead of opening a browser. It is much faster.
+- WEB APPS: When interacting with websites (Gmail, YouTube, etc), prefer their native single-key shortcuts (e.g. 'c' for compose, 'k' for pause) over OS-standard shortcuts like Cmd+N or Space.
+- ACTION URLS: If a task can be accomplished by opening a specific URL (e.g. "mail.google.com/...?compose=new"), PREFER that over opening the homepage and pressing keys.It is faster and error - proof.
+- For transform_clipboard: If the task implies a personal response(like an email reply), explicitly tell the LLM to sign off or refer to the user by their name from the context.
+- CRITICAL: If the user wants to modify, explain, or generate text based on their selection, use "transform_clipboard" instead of opening a browser.It is much faster.
 
-ALWAYS respond with ONLY the JSON object. No backticks, no markdown, no explanation.
+ALWAYS respond with ONLY the JSON object.No backticks, no markdown, no explanation.
 
-Example 1: "Tailor this prompt for an LLM"
+  Example 1: "Tailor this prompt for an LLM"
 {
   "reasoning": "The user wants to refine text for an LLM. 1. I need to get the current text (copy). 2. Use the transform tool to rewrite it. 3. Paste it back. 'Cmd+T' might be common, so I'll use Cmd+Alt+T which is safer.",
-  "name": "Tailor prompt for LLM",
-  "hotkey": { "mods": ["cmd", "alt"], "key": "T" },
+    "name": "Tailor prompt for LLM",
+      "hotkey": { "mods": ["cmd", "alt"], "key": "T" },
   "steps": [
     { "tool": "debug_log", "input": { "text": "Tailoring prompt..." } },
     { "tool": "copy_selection", "input": {} },
@@ -22719,7 +22724,7 @@ Example 1: "Tailor this prompt for an LLM"
 Example 2: "Draft a polite reply to this email"
 {
   "name": "Draft polite reply",
-  "hotkey": { "mods": ["cmd", "alt"], "key": "R" },
+    "hotkey": { "mods": ["cmd", "alt"], "key": "R" },
   "steps": [
     { "tool": "debug_log", "input": { "text": "Drafting reply..." } },
     { "tool": "copy_selection", "input": {} },
@@ -22733,9 +22738,20 @@ Example 2: "Draft a polite reply to this email"
 Example 3: "Snap window left"
 {
   "name": "Snap Left",
-  "hotkey": { "mods": ["cmd", "alt"], "key": "Left" },
+    "hotkey": { "mods": ["cmd", "alt"], "key": "Left" },
   "steps": [
     { "tool": "snap_window", "input": { "target": "left", "app_name": "Google Chrome" } }
+  ]
+}
+
+Example 4: "Open Gmail and draft email"
+{
+  "reasoning": "User wants to draft email. The most robust way is to use the direct compose URL (?compose=new) which works even if hotkeys are disabled.",
+    "name": "Draft Email",
+      "hotkey": { "mods": ["cmd", "alt"], "key": "C" },
+  "steps": [
+    { "tool": "debug_log", "input": { "text": "Opening Gmail Compose..." } },
+    { "tool": "open_url", "input": { "url": "https://mail.google.com/mail/u/0/#inbox?compose=new" } }
   ]
 }
 `;
@@ -22773,8 +22789,8 @@ async function planWorkflow(command) {
     model: "gpt-4o-mini",
     messages: [
       { role: "system", content: WORKFLOW_PLANNER_PROMPT },
-      { role: "system", content: `Context:
-${contextJson}` },
+      { role: "system", content: `Context: 
+${contextJson} ` },
       { role: "user", content: command }
     ],
     response_format: { type: "json_object" }
@@ -22786,7 +22802,7 @@ ${contextJson}` },
     plan.id = crypto.randomUUID();
     if (!plan.name) plan.name = command.slice(0, 50);
     if (plan.reasoning) {
-      console.log(`[Planner Reasoning]: ${plan.reasoning}`);
+      console.log(`[Planner Reasoning]: ${plan.reasoning} `);
     }
     return plan;
   } catch (e) {
@@ -22799,7 +22815,7 @@ async function transformText(text, instruction) {
   const completion = await client.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: `You are a helpful text transformation assistant. The user's name is ${username}. Return ONLY the transformed text. No explanation.` },
+      { role: "system", content: `You are a helpful text transformation assistant.The user's name is ${username}. Return ONLY the transformed text. No explanation.` },
       { role: "user", content: `Instruction: ${instruction}
 
 Input Text:
@@ -23035,6 +23051,32 @@ const TOOLS = {
     console.log("[Tool:focus_url_bar]");
     try {
       await execAppleScript(`tell application "System Events" to keystroke "l" using command down`);
+      return { success: true };
+    } catch (e) {
+      return { success: false, text: String(e) };
+    }
+  },
+  "press_key": async (input) => {
+    const key = input.key;
+    const mods = input.mods || [];
+    console.log(`[Tool:press_key] Pressing ${key} with mods: ${mods}`);
+    if (!key) return { success: false, text: "No key provided" };
+    const modMap = {
+      "cmd": "command down",
+      "alt": "option down",
+      "ctrl": "control down",
+      "shift": "shift down"
+    };
+    const scriptMods = mods.map((m) => modMap[m]).filter(Boolean).join(", ");
+    const usingPart = scriptMods ? ` using {${scriptMods}}` : "";
+    let script = "";
+    if (key.toLowerCase() === "enter" || key.toLowerCase() === "return") {
+      script = `tell application "System Events" to key code 36${usingPart}`;
+    } else {
+      script = `tell application "System Events" to keystroke "${key}"${usingPart}`;
+    }
+    try {
+      await execAppleScript(script);
       return { success: true };
     } catch (e) {
       return { success: false, text: String(e) };
