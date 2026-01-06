@@ -322,6 +322,7 @@ Tools Available (Client-Side Execution):
 
 Usage Rules:
 - Return ONLY JSON.
+- The JSON object MUST have a "reasoning" field where you explain your plan step-by-step before generating the "steps" array.
 - Do NOT use reserved hotkeys. Check "reserved_hotkeys" in the context. If a conflict exists, choose a different key.
 - Prefer efficient tool chains.
 - Use the provided context (e.g. username) to personalize instructions.
@@ -332,6 +333,7 @@ ALWAYS respond with ONLY the JSON object. No backticks, no markdown, no explanat
 
 Example 1: "Tailor this prompt for an LLM"
 {
+  "reasoning": "The user wants to refine text for an LLM. 1. I need to get the current text (copy). 2. Use the transform tool to rewrite it. 3. Paste it back. 'Cmd+T' might be common, so I'll use Cmd+Alt+T which is safer.",
   "name": "Tailor prompt for LLM",
   "hotkey": { "mods": ["cmd", "alt"], "key": "T" },
   "steps": [
@@ -426,6 +428,10 @@ async function planWorkflow(command: string): Promise<any> {
     // Assign ID
     plan.id = crypto.randomUUID();
     if (!plan.name) plan.name = command.slice(0, 50);
+
+    if (plan.reasoning) {
+      console.log(`[Planner Reasoning]: ${plan.reasoning}`);
+    }
 
     // Auto-save? The server.py did. But let's just return it for now, 
     // as the Dashboard "Save" button triggers the save.
@@ -587,7 +593,7 @@ function refreshRegistryAndHotkeys() {
           }
         }
       });
-      console.log(`[Hotkeys] Registered System Hotkey ${overlayAccelerator} for Toggle Overlay`);
+      // console.log(`[Hotkeys] Registered System Hotkey ${overlayAccelerator} for Toggle Overlay`);
     }
   } catch (err) {
     console.error(`[Hotkeys] Failed to register overlay toggle:`, err);
@@ -615,7 +621,7 @@ function refreshRegistryAndHotkeys() {
         globalShortcut.register(accelerator, () => {
           triggerWorkflow(wf.id, wf.name);
         });
-        console.log(`[Hotkeys] Registered ${accelerator} for ${wf.name}`);
+        // console.log(`[Hotkeys] Registered ${accelerator} for ${wf.name}`);
       } catch (err) {
         console.error(`[Hotkeys] Error registering ${accelerator}:`, err);
       }
