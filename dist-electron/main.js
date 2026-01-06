@@ -22455,7 +22455,7 @@ dotenv.config({ path: path$2.join(process.cwd(), ".env") });
 let openaiClient = null;
 function getOpenAI() {
   const prefs = preferencesStore.get("preferences");
-  const apiKey = prefs.apiKey || process.env.OPENAI_API_KEY;
+  const apiKey = prefs.apiKey;
   if (!apiKey) {
     throw new Error("No OpenAI API Key found. Please set it in Settings.");
   }
@@ -22700,7 +22700,8 @@ Usage Rules:
 - Prefer efficient tool chains.
 - Use the provided context (e.g. username) to personalize instructions.
 - WEB APPS: When interacting with websites (Gmail, YouTube, etc), prefer their native single-key shortcuts (e.g. 'c' for compose, 'k' for pause) over OS-standard shortcuts like Cmd+N or Space.
-- ACTION URLS: If a task can be accomplished by opening a specific URL (e.g. "mail.google.com/...?compose=new"), PREFER that over opening the homepage and pressing keys.It is faster and error - proof.
+- ACTION URLS (WEB ONLY): If a task can be accomplished by opening a specific URL (e.g. "mail.google.com/...?compose=new"), PREFER that over opening the homepage and pressing keys. It is faster and error-proof.
+- DESKTOP APPS: If the user explicitly asks for a desktop app (e.g. "Open Outlook", "Open Notes"), use "open_app". Do NOT use "open_url" for native apps unless it is clearly a web-only service (like Gmail). IMPORTANT: Use the FULL macOS application name (e.g. "Microsoft Outlook" instead of "Outlook", "Google Chrome" instead of "Chrome").
 - For transform_clipboard: If the task implies a personal response(like an email reply), explicitly tell the LLM to sign off or refer to the user by their name from the context.
 - CRITICAL: If the user wants to modify, explain, or generate text based on their selection, use "transform_clipboard" instead of opening a browser.It is much faster.
 
@@ -22815,7 +22816,7 @@ async function transformText(text, instruction) {
   const completion = await client.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: `You are a helpful text transformation assistant.The user's name is ${username}. Return ONLY the transformed text. No explanation.` },
+      { role: "system", content: `You are a text transformation assistant. The user's name is ${username}. Your goal is to strictly follow the transformation instruction. Modify the text only as much as needed to fulfill the request. Maintain the core idea and original style. Do not overly transform or rewrite unnecessarily. Be concise. Return ONLY the transformed text. No explanation.` },
       { role: "user", content: `Instruction: ${instruction}
 
 Input Text:
