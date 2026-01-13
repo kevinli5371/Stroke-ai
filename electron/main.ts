@@ -465,11 +465,11 @@ async function planWorkflow(command: string): Promise<any> {
 
 async function transformText(text: string, instruction: string): Promise<string> {
   const client = getOpenAI();
-  const username = os.userInfo().username;
+  const username = os.userInfo().username;  // use this as context eventually
   const completion = await client.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
-      { role: "system", content: `You are a text transformation assistant. The user's name is ${username}. Your goal is to strictly follow the transformation instruction. Modify the text only as much as needed to fulfill the request. Maintain the core idea and original style. Do not overly transform or rewrite unnecessarily. Be concise. Return ONLY the transformed text. No explanation.` },
+      { role: "system", content: `You are a text transformation assistant. Your goal is to strictly follow the transformation instruction. Modify the text only as much as needed to fulfill the request. Maintain the core idea and original style. Do not overly transform or rewrite unnecessarily. Be concise. Return ONLY the transformed text. No explanation.` },
       { role: "user", content: `Instruction: ${instruction}\n\nInput Text:\n${text}` }
     ]
   });
