@@ -228,16 +228,15 @@ export default function Dashboard() {
                 >
                     Run History
                 </button>
+            </nav>
+
+            <div className="sidebar-footer">
                 <button
                     className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
                     onClick={() => handleNavigation('settings')}
                 >
                     Settings
                 </button>
-            </nav>
-
-            <div className="sidebar-footer">
-                {/* <div className="status-indicator placeholder">placeholder</div> */}
             </div>
         </aside>
     );
