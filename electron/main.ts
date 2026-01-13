@@ -465,7 +465,7 @@ async function planWorkflow(command: string): Promise<any> {
 
 async function transformText(text: string, instruction: string): Promise<string> {
   const client = getOpenAI();
-  const username = os.userInfo().username;  // use this as context eventually
+  // const username = os.userInfo().username;  // use this as context eventually
   const completion = await client.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
