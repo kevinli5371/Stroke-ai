@@ -899,3 +899,14 @@ html {
     color: var(--text-main);
     background: var(--bg-hover-strong);
 }
+/* No Workflows Message */
+.no-workflows-message {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    font-weight: 500;
+    min-height: 300px;
+}

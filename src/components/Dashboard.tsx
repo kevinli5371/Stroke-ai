@@ -319,6 +319,13 @@ export default function Dashboard() {
 
                                 {workflowsError && <div className="error-banner animate-slide-up">{workflowsError}</div>}
 
+
+                                {(!workflowsLoading && !workflowsError && workflows.length === 0) && (
+                                    <div className="no-workflows-message animate-slide-up">
+                                        click the "+" to create a new workflow
+                                    </div>
+                                )}
+
                                 <div className="animate-slide-up">
                                     <MasonryGrid
                                         items={workflows}
