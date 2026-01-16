@@ -1072,6 +1072,11 @@ async function triggerWorkflow(workflowId: string, workflowName: string) {
     console.log("[Trigger] No steps to execute.");
   }
 
+  // Notify Overlay that we are done
+  if (overlayWin && !overlayWin.isDestroyed()) {
+    overlayWin.webContents.send('workflow-completed');
+  }
+
   // 3. Log Run to History
   const logEntry: RunLog = {
     id: crypto.randomUUID(),

@@ -18,8 +18,7 @@ export default function Overlay() {
         document.body.style.overflow = "hidden";
         document.documentElement.style.overflow = "hidden";
 
-        // Listen for trigger events
-        window.ipcRenderer?.on("trigger", (_event, payload) => {
+        const handleTrigger = (_event: any, payload: any) => {
             let textToShow = "";
             if (typeof payload === "string") {
                 textToShow = payload;
@@ -34,16 +33,25 @@ export default function Overlay() {
 
             setActive(true);
             setDisplayText(textToShow);
+        };
+
+        const handleComplete = () => {
+            // Keep it visible for at least a split second so it doesn't flash too fast if the task is instant?
+            // User requested a 0.5s buffer.
             setTimeout(() => {
                 setActive(false);
                 setDisplayText("");
-            }, 2500);
-        });
+            }, 500);
+        };
+
+        window.ipcRenderer?.on("trigger", handleTrigger);
+        window.ipcRenderer?.on("workflow-completed", handleComplete);
 
         return () => {
             document.body.style.overflow = "auto";
             document.documentElement.style.overflow = "auto";
             window.ipcRenderer?.removeAllListeners("trigger");
+            window.ipcRenderer?.removeAllListeners("workflow-completed");
         };
     }, []);
 

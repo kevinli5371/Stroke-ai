@@ -3028,9 +3028,9 @@ function commentKeyword({ gen, schemaEnv, schema, errSchemaPath, opts }) {
   }
 }
 function returnResults(it) {
-  const { gen, schemaEnv, validateName, ValidationError: ValidationError2, opts } = it;
+  const { gen, schemaEnv, validateName, ValidationError: ValidationError3, opts } = it;
   if (schemaEnv.$async) {
-    gen.if((0, codegen_1$S._)`${names_1$a.default.errors} === 0`, () => gen.return(names_1$a.default.data), () => gen.throw((0, codegen_1$S._)`new ${ValidationError2}(${names_1$a.default.vErrors})`));
+    gen.if((0, codegen_1$S._)`${names_1$a.default.errors} === 0`, () => gen.return(names_1$a.default.data), () => gen.throw((0, codegen_1$S._)`new ${ValidationError3}(${names_1$a.default.vErrors})`));
   } else {
     gen.assign((0, codegen_1$S._)`${validateName}.errors`, names_1$a.default.vErrors);
     if (opts.unevaluated)
@@ -3375,14 +3375,14 @@ function getData($data, { dataLevel, dataNames, dataPathArr }) {
 validate$1.getData = getData;
 var validation_error$1 = {};
 Object.defineProperty(validation_error$1, "__esModule", { value: true });
-class ValidationError extends Error {
+let ValidationError$1 = class ValidationError extends Error {
   constructor(errors2) {
     super("validation failed");
     this.errors = errors2;
     this.ajv = this.validation = true;
   }
-}
-validation_error$1.default = ValidationError;
+};
+validation_error$1.default = ValidationError$1;
 var ref_error$1 = {};
 Object.defineProperty(ref_error$1, "__esModule", { value: true });
 const resolve_1$3 = resolve$4;
@@ -9924,9 +9924,9 @@ function requireValidate() {
     }
   }
   function returnResults2(it) {
-    const { gen, schemaEnv, validateName, ValidationError: ValidationError2, opts } = it;
+    const { gen, schemaEnv, validateName, ValidationError: ValidationError3, opts } = it;
     if (schemaEnv.$async) {
-      gen.if((0, codegen_12._)`${names_12.default.errors} === 0`, () => gen.return(names_12.default.data), () => gen.throw((0, codegen_12._)`new ${ValidationError2}(${names_12.default.vErrors})`));
+      gen.if((0, codegen_12._)`${names_12.default.errors} === 0`, () => gen.return(names_12.default.data), () => gen.throw((0, codegen_12._)`new ${ValidationError3}(${names_12.default.vErrors})`));
     } else {
       gen.assign((0, codegen_12._)`${validateName}.errors`, names_12.default.vErrors);
       if (opts.unevaluated)
@@ -10272,21 +10272,15 @@ function requireValidate() {
   return validate;
 }
 var validation_error = {};
-var hasRequiredValidation_error;
-function requireValidation_error() {
-  if (hasRequiredValidation_error) return validation_error;
-  hasRequiredValidation_error = 1;
-  Object.defineProperty(validation_error, "__esModule", { value: true });
-  class ValidationError2 extends Error {
-    constructor(errors2) {
-      super("validation failed");
-      this.errors = errors2;
-      this.ajv = this.validation = true;
-    }
+Object.defineProperty(validation_error, "__esModule", { value: true });
+class ValidationError2 extends Error {
+  constructor(errors2) {
+    super("validation failed");
+    this.errors = errors2;
+    this.ajv = this.validation = true;
   }
-  validation_error.default = ValidationError2;
-  return validation_error;
 }
+validation_error.default = ValidationError2;
 var ref_error = {};
 Object.defineProperty(ref_error, "__esModule", { value: true });
 const resolve_1$1 = resolve$1;
@@ -10302,7 +10296,7 @@ var compile = {};
 Object.defineProperty(compile, "__esModule", { value: true });
 compile.resolveSchema = compile.getCompilingSchema = compile.resolveRef = compile.compileSchema = compile.SchemaEnv = void 0;
 const codegen_1$m = codegen;
-const validation_error_1 = requireValidation_error();
+const validation_error_1 = validation_error;
 const names_1$2 = names$1;
 const resolve_1 = resolve$1;
 const util_1$k = util;
@@ -10575,7 +10569,7 @@ uri$1.default = uri;
   Object.defineProperty(exports, "CodeGen", { enumerable: true, get: function() {
     return codegen_12.CodeGen;
   } });
-  const validation_error_12 = requireValidation_error();
+  const validation_error_12 = validation_error;
   const ref_error_12 = ref_error;
   const rules_12 = rules;
   const compile_12 = compile;
@@ -13028,7 +13022,7 @@ const require$$3 = {
   Object.defineProperty(exports, "CodeGen", { enumerable: true, get: function() {
     return codegen_12.CodeGen;
   } });
-  var validation_error_12 = requireValidation_error();
+  var validation_error_12 = validation_error;
   Object.defineProperty(exports, "ValidationError", { enumerable: true, get: function() {
     return validation_error_12.default;
   } });
@@ -23296,6 +23290,9 @@ async function triggerWorkflow(workflowId, workflowName) {
     }
   } else {
     console.log("[Trigger] No steps to execute.");
+  }
+  if (overlayWin && !overlayWin.isDestroyed()) {
+    overlayWin.webContents.send("workflow-completed");
   }
   const logEntry = {
     id: crypto.randomUUID(),
