@@ -718,6 +718,72 @@ for i in range(20): # Try for 2 seconds
 
 // Map of ToolName -> Function
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// Helper to find and activate a tab in the default browser
+async function findAndActivateTab(urlFragment: string): Promise<boolean> {
+  const prefs = preferencesStore.get("preferences");
+  const browserName = prefs.defaultBrowser || "Google Chrome";
+  console.log(`[SmartTab] Checking ${browserName} for url containing: ${urlFragment}`);
+
+  let script = "";
+
+  // Chromium-based browsers (Chrome, Edge, Brave, Arc, Operating System default if mapped)
+  // "Google Chrome", "Microsoft Edge", "Brave Browser", "Arc"
+  // Note: Arc's AppleScript dictionary is similar to Chrome regarding tabs/windows
+  if (browserName.includes("Chrome") || browserName.includes("Edge") || browserName.includes("Brave") || browserName.includes("Arc")) {
+    script = `
+      tell application "${browserName}"
+        if running then
+          repeat with w in windows
+            set i to 1
+            repeat with t in tabs of w
+              if URL of t contains "${urlFragment}" then
+                set active tab index of w to i
+                set index of w to 1
+                activate
+                return "found"
+              end if
+              set i to i + 1
+            end repeat
+          end repeat
+        end if
+      end tell
+      return "not found"
+    `;
+  } else if (browserName.includes("Safari")) {
+    script = `
+      tell application "${browserName}"
+        if running then
+          repeat with w in windows
+            set i to 1
+            repeat with t in tabs of w
+              if URL of t contains "${urlFragment}" then
+                set current tab of w to t
+                set index of w to 1
+                activate
+                return "found"
+              end if
+              set i to i + 1
+            end repeat
+          end repeat
+        end if
+      end tell
+      return "not found"
+    `;
+  } else {
+    // Unsupported browser for smart switching, fall back
+    console.log(`[SmartTab] Browser ${browserName} not supported for smart switching.`);
+    return false;
+  }
+
+  try {
+    const result = await execAppleScript(script);
+    return result === "found";
+  } catch (e) {
+    console.error(`[SmartTab] Error executing AppleScript for ${browserName}:`, e);
+    return false; // Fallback to opening new
+  }
+}
+
 const TOOLS: Record<string, (input: any) => Promise<any>> = {
   "debug_log": async (input) => {
     console.log("[Tool:debug_log]", input.text);
@@ -732,9 +798,18 @@ const TOOLS: Record<string, (input: any) => Promise<any>> = {
   "open_url": async (input) => {
     const url = input.url;
     if (url) {
-      console.log(`[Tool:open_url] Opening ${url}`);
+      console.log(`[Tool:open_url] Request to open ${url}`);
+
+      // smart check: if it's a specific app url (like chatgpt), try to switch to it
+      const switched = await findAndActivateTab(url);
+      if (switched) {
+        console.log(`[Tool:open_url] Found existing tab, switched to it.`);
+        return { success: true, method: "switched_tab" };
+      }
+
+      console.log(`[Tool:open_url] Opening new instance via openExternal`);
       await shell.openExternal(url);
-      return { success: true };
+      return { success: true, method: "new_tab" };
     }
     return { success: false, text: "No URL" };
   },
