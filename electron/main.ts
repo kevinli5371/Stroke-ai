@@ -784,15 +784,34 @@ async function findAndActivateTab(urlFragment: string): Promise<boolean> {
   }
 }
 
-const TOOLS: Record<string, (input: any) => Promise<any>> = {
+const TOOLS: Record<string, (input: any, context?: { onProgress: (p: number) => void }) => Promise<any>> = {
   "debug_log": async (input) => {
     console.log("[Tool:debug_log]", input.text);
     return { success: true, text: input.text };
   },
-  "wait": async (input) => {
+  "wait": async (input, context) => {
     const seconds = Number(input.seconds) || 1;
     console.log(`[Tool:wait] Sleeping ${seconds}s`);
-    await wait(seconds);
+
+    const startTime = Date.now();
+    const endTime = startTime + (seconds * 1000);
+
+    // Loop with small sleeps to update progress
+    while (Date.now() < endTime) {
+      const now = Date.now();
+      const elapsed = (now - startTime) / 1000;
+      const p = Math.min(elapsed / seconds, 1);
+
+      if (context?.onProgress) context.onProgress(p);
+
+      // Sleep for 100ms or remaining time
+      const remaining = endTime - now;
+      await wait(Math.min(0.1, remaining / 1000));
+    }
+
+    // Ensure final 100%
+    if (context?.onProgress) context.onProgress(1);
+
     return { success: true };
   },
   "open_url": async (input) => {
@@ -997,16 +1016,29 @@ const TOOLS: Record<string, (input: any) => Promise<any>> = {
 
 // Function to execute a full plan (list of steps)
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Function to execute a full plan (list of steps)
-/* eslint-disable @typescript-eslint/no-explicit-any */
 async function executePlan(steps: any[], onProgress?: (current: number, total: number) => void) {
   console.log("--- Executing Plan ---");
-  for (let i = 0; i < steps.length; i++) {
+  const totalSteps = steps.length;
+
+  for (let i = 0; i < totalSteps; i++) {
     const step = steps[i];
     const toolFn = TOOLS[step.tool];
+
+    // Context for the tool to report internal progress (0..1)
+    const stepContext = {
+      onProgress: (stepProgress: number) => {
+        if (onProgress) {
+          // Global progress = (completed steps + current step progress)
+          // e.g. Step 0 (0 to 1) -> 0.xxxx
+          // e.g. Step 1 (of 3) -> 1.xxxx
+          onProgress(i + stepProgress, totalSteps);
+        }
+      }
+    };
+
     if (toolFn) {
       try {
-        await toolFn(step.input || {});
+        await toolFn(step.input || {}, stepContext);
       } catch (e) {
         console.error(`Error executing ${step.tool}:`, e);
       }
@@ -1015,7 +1047,7 @@ async function executePlan(steps: any[], onProgress?: (current: number, total: n
     }
 
     if (onProgress) {
-      onProgress(i + 1, steps.length);
+      onProgress(i + 1, totalSteps);
     }
   }
   console.log("--- Plan Complete ---");

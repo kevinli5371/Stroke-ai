@@ -59,13 +59,13 @@
 .border-base {
     fill: none;
     stroke: #aaa;
-    stroke-width: 1.5px;
+    stroke-width: 1px;
 }
 
 .border-active {
     fill: none;
-    stroke: #ffffff;
-    stroke-width: 1.5px;
+    stroke: #4ade80;
+    stroke-width: 1px;
     opacity: 0;
     transition: opacity 0.3s ease;
 }

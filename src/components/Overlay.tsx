@@ -82,10 +82,8 @@ export default function Overlay() {
                 <div
                     className="blob-content"
                     style={{
-                        width: active ? "75px" : "50px",
-                        height: active ? "27px" : "12px",
-                        // transform not needed if we just animate width/height directly, 
-                        // center alignment handled by flex in container
+                        width: active ? "64px" : "38px",
+                        height: active ? "22px" : "8px",
                     }}
                 >
                     {active && (
@@ -97,28 +95,21 @@ export default function Overlay() {
 
                 {/* 2. SVG Border Layer */}
                 <svg className="overlay-svg">
-                    {/* Width/Height must match the container/pill animation ideally, 
-                        but effectively we center the rects.
-                        Actually simpler: make the SVG match the content size? 
-                        Or just use centered rects.
-                        Let's render rects that match the current dimensions. 
-                    */}
-
                     <rect
-                        x={100 - (active ? 37.5 : 25)}
-                        y={30 - (active ? 13.5 : 6)}
-                        width={active ? "75px" : "50px"}
-                        height={active ? "27px" : "12px"}
-                        rx={active ? 13.5 : 6}
+                        x={100 - (active ? 32 : 19)}
+                        y={30 - (active ? 11 : 4)}
+                        width={active ? "64px" : "38px"}
+                        height={active ? "22px" : "8px"}
+                        rx={active ? 11 : 4}
                         className="border-base transition-rect"
                     />
 
                     <rect
-                        x={100 - (active ? 37.5 : 25)}
-                        y={30 - (active ? 13.5 : 6)}
-                        width={active ? "75px" : "50px"}
-                        height={active ? "27px" : "12px"}
-                        rx={active ? 13.5 : 6}
+                        x={100 - (active ? 32 : 19)}
+                        y={30 - (active ? 11 : 4)}
+                        width={active ? "64px" : "38px"}
+                        height={active ? "22px" : "8px"}
+                        rx={active ? 11 : 4}
                         className={`border-active ${active ? 'visible' : ''} transition-rect`}
                         strokeDasharray={strokeDasharray}
                         style={{ strokeDashoffset }}
