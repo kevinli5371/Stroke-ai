@@ -430,7 +430,7 @@ async function planWorkflow(command: string): Promise<any> {
 
   const client = getOpenAI();
   const completion = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4o",
     messages: [
       { role: "system", content: WORKFLOW_PLANNER_PROMPT },
       { role: "system", content: `Context: \n${contextJson} ` },
@@ -467,7 +467,7 @@ async function transformText(text: string, instruction: string): Promise<string>
   const client = getOpenAI();
   // const username = os.userInfo().username;  // use this as context eventually
   const completion = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4o",
     messages: [
       { role: "system", content: `You are a text transformation assistant. Your goal is to strictly follow the transformation instruction. Modify the text only as much as needed to fulfill the request. Maintain the core idea and original style. Do not overly transform or rewrite unnecessarily. Be concise. Return ONLY the transformed text. No explanation.` },
       { role: "user", content: `Instruction: ${instruction}\n\nInput Text:\n${text}` }
@@ -1016,8 +1016,12 @@ const TOOLS: Record<string, (input: any, context?: { onProgress: (p: number) => 
 
 // Function to execute a full plan (list of steps)
 /* eslint-disable @typescript-eslint/no-explicit-any */
-async function executePlan(steps: any[], onProgress?: (current: number, total: number) => void) {
+async function executePlan(steps: any[], onProgress?: (current: number, total: number) => void, runtimeContext?: { activeApp: string }) {
   console.log("--- Executing Plan ---");
+  if (runtimeContext) {
+    console.log(`[Plan Execution] Runtime Context: ${JSON.stringify(runtimeContext)}`);
+  }
+
   const totalSteps = steps.length;
 
   for (let i = 0; i < totalSteps; i++) {
@@ -1033,7 +1037,8 @@ async function executePlan(steps: any[], onProgress?: (current: number, total: n
           // e.g. Step 1 (of 3) -> 1.xxxx
           onProgress(i + stepProgress, totalSteps);
         }
-      }
+      },
+      runtimeContext: runtimeContext
     };
 
     if (toolFn) {
@@ -1058,14 +1063,15 @@ async function executePlan(steps: any[], onProgress?: (current: number, total: n
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 // Active App Detection
-// async function getActiveAppName(): Promise<string> {
-//   try {
-//     return await execAppleScript('tell application "System Events" to get name of first application process whose frontmost is true');
-//   } catch (e) {
-//     console.error("Failed to get active app:", e);
-//     return "Unknown";
-//   }
-// }
+// Active App Detection
+async function getActiveAppName(): Promise<string> {
+  try {
+    return await execAppleScript('tell application "System Events" to get name of first application process whose frontmost is true');
+  } catch (e) {
+    console.error("Failed to get active app:", e);
+    return "Unknown";
+  }
+}
 
 // ----------------------------------------
 // WORKFLOW TRIGGER LOGIC
@@ -1083,6 +1089,10 @@ async function triggerWorkflow(workflowId: string, workflowName: string) {
     console.error(`[Trigger] Workflow ${workflowId} not found in registry`);
     return;
   }
+
+  // Detect Active App Context (Runtime)
+  const activeApp = await getActiveAppName();
+  console.log(`[Trigger] Context: Active App = ${activeApp}`);
 
   // 1. Notify User (Overlay)
   if (overlayWin && !overlayWin.isDestroyed()) {
@@ -1107,7 +1117,7 @@ async function triggerWorkflow(workflowId: string, workflowName: string) {
         if (overlayWin && !overlayWin.isDestroyed()) {
           overlayWin.webContents.send('workflow-progress', { current, total });
         }
-      });
+      }, { activeApp });
     } catch (e) {
       status = 'error';
       console.error("Workflow execution failed", e);

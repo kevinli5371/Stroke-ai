@@ -22787,7 +22787,7 @@ async function planWorkflow(command) {
   const contextJson = JSON.stringify(context, null, 2);
   const client = getOpenAI();
   const completion = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4o",
     messages: [
       { role: "system", content: WORKFLOW_PLANNER_PROMPT },
       { role: "system", content: `Context: 
@@ -22813,7 +22813,7 @@ ${contextJson} ` },
 async function transformText(text, instruction) {
   const client = getOpenAI();
   const completion = await client.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4o",
     messages: [
       { role: "system", content: `You are a text transformation assistant. Your goal is to strictly follow the transformation instruction. Modify the text only as much as needed to fulfill the request. Maintain the core idea and original style. Do not overly transform or rewrite unnecessarily. Be concise. Return ONLY the transformed text. No explanation.` },
       { role: "user", content: `Instruction: ${instruction}
@@ -23229,8 +23229,11 @@ const TOOLS = {
     }
   }
 };
-async function executePlan(steps, onProgress) {
+async function executePlan(steps, onProgress, runtimeContext) {
   console.log("--- Executing Plan ---");
+  if (runtimeContext) {
+    console.log(`[Plan Execution] Runtime Context: ${JSON.stringify(runtimeContext)}`);
+  }
   const totalSteps = steps.length;
   for (let i = 0; i < totalSteps; i++) {
     const step = steps[i];
@@ -23240,7 +23243,8 @@ async function executePlan(steps, onProgress) {
         if (onProgress) {
           onProgress(i + stepProgress, totalSteps);
         }
-      }
+      },
+      runtimeContext
     };
     if (toolFn) {
       try {
@@ -23257,6 +23261,14 @@ async function executePlan(steps, onProgress) {
   }
   console.log("--- Plan Complete ---");
 }
+async function getActiveAppName() {
+  try {
+    return await execAppleScript('tell application "System Events" to get name of first application process whose frontmost is true');
+  } catch (e) {
+    console.error("Failed to get active app:", e);
+    return "Unknown";
+  }
+}
 const WORKFLOW_REGISTRY = /* @__PURE__ */ new Map();
 async function triggerWorkflow(workflowId, workflowName) {
   console.log(`[Trigger] Workflow ${workflowId} (${workflowName}) triggered`);
@@ -23265,6 +23277,8 @@ async function triggerWorkflow(workflowId, workflowName) {
     console.error(`[Trigger] Workflow ${workflowId} not found in registry`);
     return;
   }
+  const activeApp = await getActiveAppName();
+  console.log(`[Trigger] Context: Active App = ${activeApp}`);
   if (overlayWin && !overlayWin.isDestroyed()) {
     overlayWin.webContents.send("trigger", {
       message: `Running: ${workflowName}`,
@@ -23279,7 +23293,7 @@ async function triggerWorkflow(workflowId, workflowName) {
         if (overlayWin && !overlayWin.isDestroyed()) {
           overlayWin.webContents.send("workflow-progress", { current, total });
         }
-      });
+      }, { activeApp });
     } catch (e) {
       status = "error";
       console.error("Workflow execution failed", e);
