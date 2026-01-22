@@ -997,9 +997,12 @@ const TOOLS: Record<string, (input: any) => Promise<any>> = {
 
 // Function to execute a full plan (list of steps)
 /* eslint-disable @typescript-eslint/no-explicit-any */
-async function executePlan(steps: any[]) {
+// Function to execute a full plan (list of steps)
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function executePlan(steps: any[], onProgress?: (current: number, total: number) => void) {
   console.log("--- Executing Plan ---");
-  for (const step of steps) {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
     const toolFn = TOOLS[step.tool];
     if (toolFn) {
       try {
@@ -1009,6 +1012,10 @@ async function executePlan(steps: any[]) {
       }
     } else {
       console.warn(`Unknown tool: ${step.tool}`);
+    }
+
+    if (onProgress) {
+      onProgress(i + 1, steps.length);
     }
   }
   console.log("--- Plan Complete ---");
@@ -1061,9 +1068,14 @@ async function triggerWorkflow(workflowId: string, workflowName: string) {
     // Capture results from execution if possible? 
     // executePlan currently logs but doesn't return results.
     // For now, we assume success unless it throws?
+
     // Let's wrap executePlan to be safe.
     try {
-      await executePlan(workflow.steps);
+      await executePlan(workflow.steps, (current, total) => {
+        if (overlayWin && !overlayWin.isDestroyed()) {
+          overlayWin.webContents.send('workflow-progress', { current, total });
+        }
+      });
     } catch (e) {
       status = 'error';
       console.error("Workflow execution failed", e);

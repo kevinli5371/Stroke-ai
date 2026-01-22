@@ -42,83 +42,77 @@
     align-items: center;
 }
 
-.layer-container {
+/* =========================================
+   SVG Overlay & Borders
+   ========================================= */
+.overlay-svg {
     position: absolute;
-    inset: 0;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    /* Helper to center items initially */
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     pointer-events: none;
-    /* Let clicks pass through */
+    z-index: 20;
+    overflow: visible;
+}
+
+.border-base {
+    fill: none;
+    stroke: #aaa;
+    stroke-width: 1.5px;
+}
+
+.border-active {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 1.5px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.border-active.visible {
+    opacity: 1;
+    /* animation handled via inline stroke-dashoffset transition */
+}
+
+@keyframes snake-border {
+    0% {
+        stroke-dashoffset: 200;
+        /* Start offset matches likely perimeter */
+    }
+
+    100% {
+        stroke-dashoffset: 0;
+    }
 }
 
 /* =========================================
-   Gooey Layer & Blobs
+   Content Layer
    ========================================= */
-.goo-layer {
-    filter: url('#goo');
-    /* Global opacity for the dark liquid glass look */
-    opacity: 0.6;
-}
+.blob-content {
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 20px;
+    /* Must match SVG rx */
+    color: white;
+    z-index: 10;
+    /* Border is now handled by SVG */
+    border: none;
 
-/* Base style for moving parts */
-.motion-element {
-    position: absolute;
-    /* We use absolute + transform for movement */
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.8s cubic-bezier(0.19, 1, 0.22, 1);
+
+    /* Transitions for size changes */
+    transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-.blob-bg {
-    background: #141414;
-    border-radius: 20px;
-    border: none;
-    /* No border in goo layer to prevent artifacts */
+.transition-rect {
+    transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1), stroke-dashoffset 0.3s ease-out;
 }
 
-.blob-content {
-    background: transparent;
-    border-radius: 20px;
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    /* Sharp border */
-    z-index: 10;
-}
-
-/* =========================================
-   Specific Shapes (Pill & Circle)
-   ========================================= */
-.shape-pill {
-    height: 27px;
-    /* Width is dynamic via inline style (animation) */
-}
-
-.shape-circle {
-    width: 27px;
-    height: 27px;
-    border-radius: 50%;
-}
-
-/* Text inside the Pill */
 .pill-text-active {
     font-size: 13px;
     font-weight: 600;
     padding: 0 2px;
     white-space: nowrap;
-}
-
-.pill-text-idle {
-    font-size: 14px;
-    font-weight: 700;
-}
-
-/* =========================================
-   SVG Filter
-   ========================================= */
-.svg-filter-def {
-    visibility: hidden;
-    position: absolute;
 }
