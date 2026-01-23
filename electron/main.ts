@@ -784,7 +784,7 @@ async function findAndActivateTab(urlFragment: string): Promise<boolean> {
   }
 }
 
-const TOOLS: Record<string, (input: any, context?: { onProgress: (p: number) => void }) => Promise<any>> = {
+const TOOLS: Record<string, (input: any, context?: { onProgress?: (p: number) => void, runtimeContext?: { activeApp: string, activeUrl?: string } }) => Promise<any>> = {
   "debug_log": async (input) => {
     console.log("[Tool:debug_log]", input.text);
     return { success: true, text: input.text };
@@ -971,10 +971,10 @@ const TOOLS: Record<string, (input: any, context?: { onProgress: (p: number) => 
     const script = `
       tell application "${appName || "System Events"}" to activate
       tell application "System Events"
-        set targetProc to ${processTarget}
-        set frontWindow to first window of targetProc
-        set position of frontWindow to {${newX}, ${newY}}
-        set size of frontWindow to {${newW}, ${newH}}
+      set targetProc to ${processTarget}
+      set frontWindow to first window of targetProc
+      set position of frontWindow to {${newX}, ${newY}}
+      set size of frontWindow to {${newW}, ${newH}}
       end tell
     `;
 
@@ -990,16 +990,26 @@ const TOOLS: Record<string, (input: any, context?: { onProgress: (p: number) => 
     clipboard.writeText(text);
     return { success: true };
   },
-  "transform_clipboard": async (input) => {
+  "transform_clipboard": async (input, context) => {
     const instruction = input.instruction || "Improve this text";
-    console.log(`[Tool:transform_clipboard] ${instruction}`);
+    const activeApp = context?.runtimeContext?.activeApp || "Unknown App";
+    const activeUrl = context?.runtimeContext?.activeUrl;
+
+    console.log(`[Tool:transform_clipboard] ${instruction} (App: ${activeApp}, URL: ${activeUrl})`);
 
     try {
       const originalText = clipboard.readText();
       if (!originalText) return { success: false, text: "Clipboard empty" };
 
+      // Append context to instruction
+      let contextualInstruction = `User is currently using app: "${activeApp}".\n`;
+      if (activeUrl) {
+        contextualInstruction += `Active Page URL: "${activeUrl}".\n`;
+      }
+      contextualInstruction += `Instruction: ${instruction}`;
+
       // Call Local LLM Logic
-      const result = await transformText(originalText, instruction);
+      const result = await transformText(originalText, contextualInstruction);
 
       if (result) {
         clipboard.writeText(result);
@@ -1015,8 +1025,7 @@ const TOOLS: Record<string, (input: any, context?: { onProgress: (p: number) => 
 };
 
 // Function to execute a full plan (list of steps)
-/* eslint-disable @typescript-eslint/no-explicit-any */
-async function executePlan(steps: any[], onProgress?: (current: number, total: number) => void, runtimeContext?: { activeApp: string }) {
+async function executePlan(steps: any[], onProgress?: (current: number, total: number) => void, runtimeContext?: { activeApp: string, activeUrl?: string }) {
   console.log("--- Executing Plan ---");
   if (runtimeContext) {
     console.log(`[Plan Execution] Runtime Context: ${JSON.stringify(runtimeContext)}`);
@@ -1073,6 +1082,29 @@ async function getActiveAppName(): Promise<string> {
   }
 }
 
+async function getActiveBrowserUrl(appName: string): Promise<string> {
+  const chromeBrowsers = ["Google Chrome", "Google Chrome Canary", "Chromium", "Brave Browser", "Microsoft Edge", "Arc"];
+  const safariBrowsers = ["Safari", "Safari Technology Preview", "Orion"];
+
+  let script = "";
+
+  if (chromeBrowsers.includes(appName)) {
+    script = `tell application "${appName}" to get URL of active tab of front window`;
+  } else if (safariBrowsers.includes(appName)) {
+    script = `tell application "${appName}" to get URL of current tab of front window`;
+  } else {
+    return "";
+  }
+
+  try {
+    return await execAppleScript(script);
+  } catch (e) {
+    // Only warn, don't spam errors (some browsers might not support AS fully or have different object models)
+    console.warn(`[Browser URL] Failed to get URL from ${appName}:`, e);
+    return "";
+  }
+}
+
 // ----------------------------------------
 // WORKFLOW TRIGGER LOGIC
 // ----------------------------------------
@@ -1092,7 +1124,20 @@ async function triggerWorkflow(workflowId: string, workflowName: string) {
 
   // Detect Active App Context (Runtime)
   const activeApp = await getActiveAppName();
-  console.log(`[Trigger] Context: Active App = ${activeApp}`);
+  let activeUrl: string | undefined;
+
+  // If it's a browser, try to get the URL
+  // Simple check, or reuse the list from getActiveBrowserUrl (which is better).
+  // But for now let's just call getActiveBrowserUrl, it handles unknown apps gracefully by returning "" if we just passed it.
+  // Actually getActiveBrowserUrl checks internal lists. So we can just call it.
+  // Efficiency: only call it if it MIGHT be a browser to avoid overhead on every trigger? 
+  // getActiveBrowserUrl has logic to return "" if not in list.
+  const urlCandidate = await getActiveBrowserUrl(activeApp);
+  if (urlCandidate) {
+    activeUrl = urlCandidate;
+  }
+
+  console.log(`[Trigger] Context: Active App = ${activeApp}, URL = ${activeUrl || "N/A"}`);
 
   // 1. Notify User (Overlay)
   if (overlayWin && !overlayWin.isDestroyed()) {
@@ -1117,7 +1162,7 @@ async function triggerWorkflow(workflowId: string, workflowName: string) {
         if (overlayWin && !overlayWin.isDestroyed()) {
           overlayWin.webContents.send('workflow-progress', { current, total });
         }
-      }, { activeApp });
+      }, { activeApp, activeUrl });
     } catch (e) {
       status = 'error';
       console.error("Workflow execution failed", e);

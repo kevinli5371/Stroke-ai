@@ -23192,10 +23192,10 @@ const TOOLS = {
     const script = `
       tell application "${appName || "System Events"}" to activate
       tell application "System Events"
-        set targetProc to ${processTarget}
-        set frontWindow to first window of targetProc
-        set position of frontWindow to {${newX}, ${newY}}
-        set size of frontWindow to {${newW}, ${newH}}
+      set targetProc to ${processTarget}
+      set frontWindow to first window of targetProc
+      set position of frontWindow to {${newX}, ${newY}}
+      set size of frontWindow to {${newW}, ${newH}}
       end tell
     `;
     try {
@@ -23210,13 +23210,23 @@ const TOOLS = {
     clipboard.writeText(text);
     return { success: true };
   },
-  "transform_clipboard": async (input) => {
+  "transform_clipboard": async (input, context) => {
+    var _a2, _b;
     const instruction = input.instruction || "Improve this text";
-    console.log(`[Tool:transform_clipboard] ${instruction}`);
+    const activeApp = ((_a2 = context == null ? void 0 : context.runtimeContext) == null ? void 0 : _a2.activeApp) || "Unknown App";
+    const activeUrl = (_b = context == null ? void 0 : context.runtimeContext) == null ? void 0 : _b.activeUrl;
+    console.log(`[Tool:transform_clipboard] ${instruction} (App: ${activeApp}, URL: ${activeUrl})`);
     try {
       const originalText = clipboard.readText();
       if (!originalText) return { success: false, text: "Clipboard empty" };
-      const result = await transformText(originalText, instruction);
+      let contextualInstruction = `User is currently using app: "${activeApp}".
+`;
+      if (activeUrl) {
+        contextualInstruction += `Active Page URL: "${activeUrl}".
+`;
+      }
+      contextualInstruction += `Instruction: ${instruction}`;
+      const result = await transformText(originalText, contextualInstruction);
       if (result) {
         clipboard.writeText(result);
         return { success: true, text: "Transformed clipboard" };
@@ -23269,6 +23279,24 @@ async function getActiveAppName() {
     return "Unknown";
   }
 }
+async function getActiveBrowserUrl(appName) {
+  const chromeBrowsers = ["Google Chrome", "Google Chrome Canary", "Chromium", "Brave Browser", "Microsoft Edge", "Arc"];
+  const safariBrowsers = ["Safari", "Safari Technology Preview", "Orion"];
+  let script = "";
+  if (chromeBrowsers.includes(appName)) {
+    script = `tell application "${appName}" to get URL of active tab of front window`;
+  } else if (safariBrowsers.includes(appName)) {
+    script = `tell application "${appName}" to get URL of current tab of front window`;
+  } else {
+    return "";
+  }
+  try {
+    return await execAppleScript(script);
+  } catch (e) {
+    console.warn(`[Browser URL] Failed to get URL from ${appName}:`, e);
+    return "";
+  }
+}
 const WORKFLOW_REGISTRY = /* @__PURE__ */ new Map();
 async function triggerWorkflow(workflowId, workflowName) {
   console.log(`[Trigger] Workflow ${workflowId} (${workflowName}) triggered`);
@@ -23278,7 +23306,12 @@ async function triggerWorkflow(workflowId, workflowName) {
     return;
   }
   const activeApp = await getActiveAppName();
-  console.log(`[Trigger] Context: Active App = ${activeApp}`);
+  let activeUrl;
+  const urlCandidate = await getActiveBrowserUrl(activeApp);
+  if (urlCandidate) {
+    activeUrl = urlCandidate;
+  }
+  console.log(`[Trigger] Context: Active App = ${activeApp}, URL = ${activeUrl || "N/A"}`);
   if (overlayWin && !overlayWin.isDestroyed()) {
     overlayWin.webContents.send("trigger", {
       message: `Running: ${workflowName}`,
@@ -23293,7 +23326,7 @@ async function triggerWorkflow(workflowId, workflowName) {
         if (overlayWin && !overlayWin.isDestroyed()) {
           overlayWin.webContents.send("workflow-progress", { current, total });
         }
-      }, { activeApp });
+      }, { activeApp, activeUrl });
     } catch (e) {
       status = "error";
       console.error("Workflow execution failed", e);
