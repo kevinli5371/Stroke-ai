@@ -14,10 +14,10 @@ import electron, { app as app$1, BrowserWindow, ipcMain as ipcMain$1, globalShor
 import { fileURLToPath } from "node:url";
 import path$2 from "node:path";
 import http$1 from "node:http";
+import fs$1 from "node:fs";
 import os$1 from "node:os";
 import process$1 from "node:process";
 import { promisify, isDeepStrictEqual } from "node:util";
-import fs$1 from "node:fs";
 import crypto$2 from "node:crypto";
 import assert from "node:assert";
 import "node:events";
@@ -22475,6 +22475,7 @@ const RENDERER_DIST = path$2.join(process.env.APP_ROOT, "dist");
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path$2.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
 let dashboardWin;
 let overlayWin;
+let stickyNoteWin;
 let tray = null;
 let isQuitting = false;
 function createDashboardWindow() {
@@ -22625,9 +22626,43 @@ function createOverlayWindow() {
     overlayWin.loadFile(path$2.join(RENDERER_DIST, "index.html"), { search: "?overlay" });
   }
 }
+function createStickyNoteWindow() {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+  const windowWidth = 400;
+  const windowHeight = 300;
+  const x = Math.round(width - windowWidth - 20);
+  const y = 20;
+  stickyNoteWin = new BrowserWindow({
+    width: windowWidth,
+    height: windowHeight,
+    x,
+    y,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    resizable: false,
+    show: false,
+    // Start hidden
+    webPreferences: {
+      preload: path$2.join(__dirname, "preload.mjs")
+    },
+    type: "panel",
+    minimizable: false
+  });
+  stickyNoteWin.setAlwaysOnTop(true, "floating", 1);
+  stickyNoteWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (VITE_DEV_SERVER_URL) {
+    stickyNoteWin.loadURL(`${VITE_DEV_SERVER_URL}?stickynote`);
+  } else {
+    stickyNoteWin.loadFile(path$2.join(RENDERER_DIST, "index.html"), { search: "?stickynote" });
+  }
+}
 function createWindows() {
   createDashboardWindow();
   createOverlayWindow();
+  createStickyNoteWindow();
   startLocalServer();
   if (process.platform === "darwin") {
     app$1.dock.show();
@@ -22673,6 +22708,10 @@ The "reserved_hotkeys" list contains keys that are ALREADY IN USE. You MUST NOT 
 If you suggest a hotkey that is in "reserved_hotkeys", the system will reject your plan.
 Pick a unique key (e.g. use a different letter).
 
+CRITICAL: EVERY workflow MUST have a hotkey assigned. Do NOT create a workflow without a hotkey.
+Even if it seems like a "one-time" action, the user wants a hotkey for it.
+Default to "Cmd+Alt+[FirstLetter]" if unsure, but check for conflicts.
+
 Tools Available (Client-Side Execution):
 1. "debug_log": { text: string }
 2. "open_url": { url: string }
@@ -22692,6 +22731,17 @@ Tools Available (Client-Side Execution):
 13. "press_key": { key: string, mods?: string[] }
     - Simulates a keystroke. "key" is a single character (e.g. "c") or special key.
     - "mods" is an array: "cmd", "alt", "ctrl", "shift".
+14. "capture_screen": {}
+    - Captures the entire screen to the clipboard.
+    - Use this when the user wants to "take a screenshot" or "copy screen".
+15. "analyze_screen": { instruction: string }
+    - Captures the screen (invisible to user) and sends it to an LLM for analysis.
+    - Use this for "what is on my screen?", "read this error", "describe the window", etc.
+    - Returns the text description/answer.
+16. "show_sticky_note": { text: string, duration?: number }
+    - Displays a temporary sticky note overlay on screen with the given text.
+    - Duration in milliseconds (default: 10000 = 10 seconds).
+    - Use this to show analysis results, summaries, or any text that should be visible but not copied to clipboard.
 
 Usage Rules:
 - Return ONLY JSON.
@@ -22699,6 +22749,8 @@ Usage Rules:
 - Do NOT use reserved hotkeys. Check "reserved_hotkeys" in the context. If a conflict exists, choose a different key.
 - Prefer efficient tool chains.
 - Use the provided context (e.g. username) to personalize instructions.
+- CRITICAL: If you use "analyze_screen" or any tool that generates text output, you MUST follow it with EITHER "replace_clipboard" (if the user wants to paste it) OR "show_sticky_note" (if they just want to see it). Use your reasoning to decide which is appropriate. For example, "analyze my screen" should show a sticky note, while "analyze and copy to clipboard" should use replace_clipboard.
+- CHAINING RESULTS: To pass the output from one tool to the next, use "$PREVIOUS_RESULT" as the value in the input field. For example: { "tool": "show_sticky_note", "input": { "text": "$PREVIOUS_RESULT" } } will display the result from the previous tool.
 - WEB APPS: When interacting with websites (Gmail, YouTube, etc), prefer their native single-key shortcuts (e.g. 'c' for compose, 'k' for pause) over OS-standard shortcuts like Cmd+N or Space.
 - ACTION URLS (WEB ONLY): If a task can be accomplished by opening a specific URL (e.g. "mail.google.com/...?compose=new"), PREFER that over opening the homepage and pressing keys. It is faster and error-proof.
 - DESKTOP APPS: If the user explicitly asks for a desktop app (e.g. "Open Outlook", "Open Notes"), use "open_app". Do NOT use "open_url" for native apps unless it is clearly a web-only service (like Gmail). IMPORTANT: Use the FULL macOS application name (e.g. "Microsoft Outlook" instead of "Outlook", "Google Chrome" instead of "Chrome").
@@ -22824,6 +22876,36 @@ ${text}` }
   });
   return completion.choices[0].message.content || "";
 }
+async function analyzeImage(imagePath, instruction) {
+  const client = getOpenAI();
+  if (!fs$1.existsSync(imagePath)) {
+    throw new Error(`Image file not found at ${imagePath}`);
+  }
+  const imageBuffer = fs$1.readFileSync(imagePath);
+  const base64Image = imageBuffer.toString("base64");
+  const dataUrl = `data:image/png;base64,${base64Image}`;
+  const completion = await client.chat.completions.create({
+    model: "gpt-4o-mini",
+    // Faster, cheaper model for simple descriptions
+    max_tokens: 150,
+    // Keep responses concise (1-2 paragraphs)
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `${instruction} Keep your response to 1-2 sentences maximum.` },
+          {
+            type: "image_url",
+            image_url: {
+              url: dataUrl
+            }
+          }
+        ]
+      }
+    ]
+  });
+  return completion.choices[0].message.content || "";
+}
 const runHistoryStore = new ElectronStore({
   name: "run-history",
   defaults: { history: [] }
@@ -22938,6 +23020,14 @@ function refreshRegistryAndHotkeys() {
 }
 ipcMain$1.handle("get-run-history", () => {
   return runHistoryStore.get("history", []).reverse();
+});
+ipcMain$1.handle("show-sticky-note", (_event, { content: content2, duration = 1e4 }) => {
+  if (stickyNoteWin && !stickyNoteWin.isDestroyed()) {
+    stickyNoteWin.webContents.send("sticky-note-content", { content: content2, duration });
+    stickyNoteWin.showInactive();
+    return { status: "success" };
+  }
+  return { status: "error", message: "Sticky note window not available" };
 });
 ipcMain$1.handle("clear-run-history", () => {
   runHistoryStore.set("history", []);
@@ -23237,6 +23327,51 @@ const TOOLS = {
       console.error("Transform failed", e);
       return { success: false, text: String(e) };
     }
+  },
+  "capture_screen": async () => {
+    console.log("[Tool:capture_screen] Capturing screen to clipboard");
+    try {
+      await execAppleScript(`do shell script "screencapture -c -x"`);
+      return { success: true, text: "Screen captured to clipboard" };
+    } catch (e) {
+      return { success: false, text: String(e) };
+    }
+  },
+  "analyze_screen": async (input) => {
+    const instruction = input.instruction || "Describe this screen.";
+    console.log(`[Tool:analyze_screen] ${instruction}`);
+    const tempPath = path$2.join(os$1.tmpdir(), `screenshot-${Date.now()}.png`);
+    try {
+      await execAppleScript(`do shell script "screencapture -x ${tempPath}"`);
+      const result = await analyzeImage(tempPath, instruction);
+      console.log(`[Tool:analyze_screen] Analysis result: ${result}`);
+      if (fs$1.existsSync(tempPath)) {
+        fs$1.unlinkSync(tempPath);
+      }
+      return { success: true, text: result };
+    } catch (e) {
+      if (fs$1.existsSync(tempPath)) {
+        fs$1.unlinkSync(tempPath);
+      }
+      return { success: false, text: String(e) };
+    }
+  },
+  "show_sticky_note": async (input) => {
+    const text = input.text || "";
+    const duration = input.duration || 1e4;
+    console.log(`[Tool:show_sticky_note] Input received:`, input);
+    console.log(`[Tool:show_sticky_note] Displaying: ${text.substring(0, 50)}...`);
+    try {
+      if (stickyNoteWin && !stickyNoteWin.isDestroyed()) {
+        stickyNoteWin.webContents.send("sticky-note-content", { content: text, duration });
+        stickyNoteWin.showInactive();
+        return { success: true, text: "Sticky note displayed" };
+      } else {
+        return { success: false, text: "Sticky note window not available" };
+      }
+    } catch (e) {
+      return { success: false, text: String(e) };
+    }
   }
 };
 async function executePlan(steps, onProgress, runtimeContext) {
@@ -23245,6 +23380,7 @@ async function executePlan(steps, onProgress, runtimeContext) {
     console.log(`[Plan Execution] Runtime Context: ${JSON.stringify(runtimeContext)}`);
   }
   const totalSteps = steps.length;
+  let lastResult = null;
   for (let i = 0; i < totalSteps; i++) {
     const step = steps[i];
     const toolFn = TOOLS[step.tool];
@@ -23258,7 +23394,18 @@ async function executePlan(steps, onProgress, runtimeContext) {
     };
     if (toolFn) {
       try {
-        await toolFn(step.input || {}, stepContext);
+        let toolInput = step.input || {};
+        if (lastResult && lastResult.text) {
+          console.log(`[executePlan] Previous result available: ${lastResult.text.substring(0, 100)}...`);
+          Object.keys(toolInput).forEach((key) => {
+            if (toolInput[key] === "$PREVIOUS_RESULT") {
+              console.log(`[executePlan] Replacing $PREVIOUS_RESULT in ${step.tool}.${key}`);
+              toolInput[key] = lastResult.text;
+            }
+          });
+        }
+        lastResult = await toolFn(toolInput, stepContext);
+        console.log(`[executePlan] Step ${i} (${step.tool}) result:`, lastResult);
       } catch (e) {
         console.error(`Error executing ${step.tool}:`, e);
       }

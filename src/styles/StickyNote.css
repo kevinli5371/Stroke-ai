@@ -1,0 +1,120 @@
+.sticky-note-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 20px;
+    pointer-events: none;
+    animation: slideIn 0.3s ease-out;
+}
+
+.sticky-note-container>* {
+    pointer-events: auto;
+}
+
+.sticky-note-container.fade-out {
+    animation: slideOut 0.3s ease-in forwards;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideOut {
+    from {
+        opacity: 1;
+        transform: translateX(0);
+    }
+
+    to {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+}
+
+.sticky-note-container>div {
+    background: rgba(255, 251, 235, 0.98);
+    border: 1px solid rgba(255, 200, 100, 0.3);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    width: 380px;
+    max-height: 280px;
+    display: flex;
+    flex-direction: column;
+    backdrop-filter: blur(10px);
+}
+
+.sticky-note-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 200, 100, 0.2);
+}
+
+.sticky-note-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: #8b6914;
+}
+
+.sticky-note-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: #8b6914;
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.sticky-note-close:hover {
+    background: rgba(255, 200, 100, 0.2);
+}
+
+.sticky-note-content {
+    padding: 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #4a3f0f;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Scrollbar styling */
+.sticky-note-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.sticky-note-content::-webkit-scrollbar-track {
+    background: rgba(255, 200, 100, 0.1);
+    border-radius: 3px;
+}
+
+.sticky-note-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 200, 100, 0.4);
+    border-radius: 3px;
+}
+
+.sticky-note-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 200, 100, 0.6);
+}
