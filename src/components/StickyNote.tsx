@@ -41,11 +41,13 @@ export default function StickyNote() {
 
     return (
         <div className={`sticky-note-container ${fadeOut ? "fade-out" : ""}`}>
-            <button className="sticky-note-close" onClick={handleClose}>
-                ✕
-            </button>
-            <div className="sticky-note-content">
-                {content}
+            <div>
+                <button className="sticky-note-close" onClick={handleClose}>
+                    ✕
+                </button>
+                <div className="sticky-note-content">
+                    {content}
+                </div>
             </div>
         </div>
     );
