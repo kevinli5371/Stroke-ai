@@ -23396,12 +23396,10 @@ async function executePlan(steps, onProgress, runtimeContext) {
     };
     if (toolFn) {
       try {
-        let toolInput = step.input || {};
+        let toolInput = JSON.parse(JSON.stringify(step.input || {}));
         if (lastResult && lastResult.text) {
-          console.log(`[executePlan] Previous result available: ${lastResult.text.substring(0, 100)}...`);
           Object.keys(toolInput).forEach((key) => {
             if (toolInput[key] === "$PREVIOUS_RESULT") {
-              console.log(`[executePlan] Replacing $PREVIOUS_RESULT in ${step.tool}.${key}`);
               toolInput[key] = lastResult.text;
             }
           });

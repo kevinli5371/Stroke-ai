@@ -1215,14 +1215,13 @@ async function executePlan(steps: any[], onProgress?: (current: number, total: n
 
     if (toolFn) {
       try {
-        // If the input has a special marker like "$PREVIOUS_RESULT", replace it
-        let toolInput = step.input || {};
+        // Clone input so we don't mutate the original workflow step
+        let toolInput = JSON.parse(JSON.stringify(step.input || {}));
+
         if (lastResult && lastResult.text) {
-          console.log(`[executePlan] Previous result available: ${lastResult.text.substring(0, 100)}...`);
           // Check if any input field references previous result
           Object.keys(toolInput).forEach(key => {
             if (toolInput[key] === "$PREVIOUS_RESULT") {
-              console.log(`[executePlan] Replacing $PREVIOUS_RESULT in ${step.tool}.${key}`);
               toolInput[key] = lastResult.text;
             }
           });
