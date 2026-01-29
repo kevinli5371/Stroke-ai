@@ -65,20 +65,20 @@
 .border-active {
     fill: none;
     stroke: #4ade80;
-    stroke-width: 1px;
+    stroke-width: 2px;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.2s ease;
+    stroke-linecap: round;
 }
 
 .border-active.visible {
     opacity: 1;
-    /* animation handled via inline stroke-dashoffset transition */
+    animation: race-around 1.2s linear infinite;
 }
 
-@keyframes snake-border {
+@keyframes race-around {
     0% {
-        stroke-dashoffset: 200;
-        /* Start offset matches likely perimeter */
+        stroke-dashoffset: 155;
     }
 
     100% {
@@ -107,7 +107,8 @@
 }
 
 .transition-rect {
-    transition: all 0.2s cubic-bezier(0.25, 1, 0.5, 1), stroke-dashoffset 0.15s ease-out;
+    /* Use 0.15s for the size/position changes, but NO transition on stroke-dashoffset */
+    transition: x 0.15s ease, y 0.15s ease, width 0.15s ease, height 0.15s ease, rx 0.15s ease;
 }
 
 .pill-text-active {
