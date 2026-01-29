@@ -23029,6 +23029,11 @@ ipcMain$1.handle("show-sticky-note", (_event, { content: content2, duration = 1e
   }
   return { status: "error", message: "Sticky note window not available" };
 });
+ipcMain$1.handle("hide-sticky-note", () => {
+  if (stickyNoteWin && !stickyNoteWin.isDestroyed()) {
+    stickyNoteWin.hide();
+  }
+});
 ipcMain$1.handle("clear-run-history", () => {
   runHistoryStore.set("history", []);
   return true;

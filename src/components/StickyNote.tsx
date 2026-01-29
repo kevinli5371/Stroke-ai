@@ -18,6 +18,7 @@ export default function StickyNote() {
                 setTimeout(() => {
                     setVisible(false);
                     setContent("");
+                    window.ipcRenderer?.invoke('hide-sticky-note');
                 }, 300); // Wait for fade animation
             }, payload.duration);
         };
@@ -34,6 +35,7 @@ export default function StickyNote() {
         setTimeout(() => {
             setVisible(false);
             setContent("");
+            window.ipcRenderer?.invoke('hide-sticky-note');
         }, 300);
     };
 

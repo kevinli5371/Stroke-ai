@@ -754,6 +754,12 @@ ipcMain.handle('show-sticky-note', (_event, { content, duration = 10000 }) => {
   return { status: 'error', message: 'Sticky note window not available' };
 });
 
+ipcMain.handle('hide-sticky-note', () => {
+  if (stickyNoteWin && !stickyNoteWin.isDestroyed()) {
+    stickyNoteWin.hide();
+  }
+});
+
 ipcMain.handle('clear-run-history', () => {
   runHistoryStore.set('history', []);
   return true;
