@@ -23344,7 +23344,6 @@ const TOOLS = {
     try {
       await execAppleScript(`do shell script "screencapture -x ${tempPath}"`);
       const result = await analyzeImage(tempPath, instruction);
-      console.log(`[Tool:analyze_screen] Analysis result: ${result}`);
       if (fs$1.existsSync(tempPath)) {
         fs$1.unlinkSync(tempPath);
       }
@@ -23359,8 +23358,6 @@ const TOOLS = {
   "show_sticky_note": async (input) => {
     const text = input.text || "";
     const duration = input.duration || 1e4;
-    console.log(`[Tool:show_sticky_note] Input received:`, input);
-    console.log(`[Tool:show_sticky_note] Displaying: ${text.substring(0, 50)}...`);
     try {
       if (stickyNoteWin && !stickyNoteWin.isDestroyed()) {
         stickyNoteWin.webContents.send("sticky-note-content", { content: text, duration });

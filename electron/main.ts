@@ -1148,8 +1148,6 @@ const TOOLS: Record<string, (input: any, context?: { onProgress?: (p: number) =>
       // Analyze
       const result = await analyzeImage(tempPath, instruction);
 
-      console.log(`[Tool:analyze_screen] Analysis result: ${result}`);
-
       // Cleanup
       if (fs.existsSync(tempPath)) {
         fs.unlinkSync(tempPath);
@@ -1167,8 +1165,6 @@ const TOOLS: Record<string, (input: any, context?: { onProgress?: (p: number) =>
   "show_sticky_note": async (input) => {
     const text = input.text || "";
     const duration = input.duration || 10000; // Default 10 seconds
-    console.log(`[Tool:show_sticky_note] Input received:`, input);
-    console.log(`[Tool:show_sticky_note] Displaying: ${text.substring(0, 50)}...`);
 
     try {
       if (stickyNoteWin && !stickyNoteWin.isDestroyed()) {
