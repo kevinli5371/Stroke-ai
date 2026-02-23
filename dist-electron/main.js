@@ -26,6 +26,7 @@ import require$$0$1 from "fs";
 import require$$1$1 from "path";
 import require$$2$1 from "os";
 import require$$3$2 from "crypto";
+import https$1 from "node:https";
 import { exec } from "node:child_process";
 const isObject = (value) => {
   const type2 = typeof value;
@@ -22451,7 +22452,214 @@ main.exports.populate = DotenvModule.populate;
 main.exports = DotenvModule;
 var mainExports = main.exports;
 const dotenv = /* @__PURE__ */ getDefaultExportFromCjs(mainExports);
+const MODEL_URL = "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf";
+const MODEL_FILENAME = "Phi-3.5-mini-instruct-Q4_K_M.gguf";
+const EXPECTED_MODEL_BYTES = 239e7;
+class ModelDownloader {
+  constructor() {
+    __publicField(this, "modelDir");
+    __publicField(this, "modelPath");
+    __publicField(this, "activeRequest", null);
+    this.modelDir = path$2.join(app$1.getPath("userData"), "models");
+    this.modelPath = path$2.join(this.modelDir, MODEL_FILENAME);
+  }
+  /** Check if the model file exists and is reasonably large (>1 GB). */
+  async isDownloaded() {
+    try {
+      if (!fs$1.existsSync(this.modelPath)) return false;
+      const stats = fs$1.statSync(this.modelPath);
+      return stats.size > 1e9;
+    } catch {
+      return false;
+    }
+  }
+  getModelPath() {
+    return this.modelPath;
+  }
+  /** Return file size in bytes (0 if not present). */
+  async getModelSize() {
+    try {
+      if (!fs$1.existsSync(this.modelPath)) return 0;
+      return fs$1.statSync(this.modelPath).size;
+    } catch {
+      return 0;
+    }
+  }
+  /** Abort an in-progress download. */
+  cancelDownload() {
+    if (this.activeRequest) {
+      this.activeRequest.destroy();
+      this.activeRequest = null;
+    }
+  }
+  /** Delete the downloaded model from disk. */
+  async deleteModel() {
+    this.cancelDownload();
+    const tempPath = this.modelPath + ".downloading";
+    if (fs$1.existsSync(tempPath)) fs$1.unlinkSync(tempPath);
+    if (fs$1.existsSync(this.modelPath)) fs$1.unlinkSync(this.modelPath);
+  }
+  /**
+   * Download the model from HuggingFace with progress callbacks.
+   * Follows redirects (up to 5). Writes to a temp file first, then renames.
+   */
+  async download(onProgress) {
+    if (!fs$1.existsSync(this.modelDir)) {
+      fs$1.mkdirSync(this.modelDir, { recursive: true });
+    }
+    const tempPath = this.modelPath + ".downloading";
+    return new Promise((resolve2, reject) => {
+      const followRedirect = (url, redirectCount = 0) => {
+        if (redirectCount > 5) {
+          reject(new Error("Too many redirects"));
+          return;
+        }
+        const protocol = url.startsWith("https") ? https$1 : http$1;
+        const request = protocol.get(url, (response) => {
+          if ((response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 307) && response.headers.location) {
+            followRedirect(response.headers.location, redirectCount + 1);
+            return;
+          }
+          if (response.statusCode !== 200) {
+            reject(new Error(`Download failed with HTTP ${response.statusCode}`));
+            return;
+          }
+          const totalSize = parseInt(response.headers["content-length"] || "0", 10);
+          const effectiveTotal = totalSize > 0 ? totalSize : EXPECTED_MODEL_BYTES;
+          let downloadedSize = 0;
+          const fileStream = fs$1.createWriteStream(tempPath);
+          response.on("data", (chunk) => {
+            downloadedSize += chunk.length;
+            const pct = totalSize > 0 ? downloadedSize / totalSize * 100 : Math.min(99, downloadedSize / effectiveTotal * 100);
+            onProgress(Math.round(pct));
+          });
+          response.pipe(fileStream);
+          fileStream.on("finish", () => {
+            fileStream.close();
+            try {
+              if (fs$1.existsSync(this.modelPath)) fs$1.unlinkSync(this.modelPath);
+              fs$1.renameSync(tempPath, this.modelPath);
+              onProgress(100);
+              resolve2(this.modelPath);
+            } catch (e) {
+              reject(e);
+            }
+          });
+          fileStream.on("error", (err) => {
+            if (fs$1.existsSync(tempPath)) fs$1.unlinkSync(tempPath);
+            reject(err);
+          });
+          response.on("error", (err) => {
+            if (fs$1.existsSync(tempPath)) fs$1.unlinkSync(tempPath);
+            reject(err);
+          });
+        });
+        request.on("error", (err) => {
+          if (fs$1.existsSync(tempPath)) fs$1.unlinkSync(tempPath);
+          reject(err);
+        });
+        this.activeRequest = request;
+      };
+      followRedirect(MODEL_URL);
+    });
+  }
+}
+let llamaModule = null;
+async function loadLlamaModule() {
+  if (!llamaModule) {
+    llamaModule = await import("node-llama-cpp");
+  }
+  return llamaModule;
+}
+class LocalModelService {
+  constructor() {
+    __publicField(this, "llama", null);
+    __publicField(this, "model", null);
+    __publicField(this, "_initializing", false);
+  }
+  /**
+   * Load the GGUF model into memory. Takes ~5-10 s the first time.
+   * Context is created per-generation in generate(), so we don't keep one here.
+   */
+  async initialize(modelPath) {
+    if (this.model) return;
+    if (this._initializing) {
+      while (this._initializing) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      return;
+    }
+    this._initializing = true;
+    try {
+      const { getLlama } = await loadLlamaModule();
+      this.llama = await getLlama();
+      this.model = await this.llama.loadModel({ modelPath });
+      console.log("[LocalModel] Model loaded successfully");
+    } catch (err) {
+      console.error("[LocalModel] Failed to initialize:", err);
+      this.model = null;
+      this.llama = null;
+      throw err;
+    } finally {
+      this._initializing = false;
+    }
+  }
+  isInitialized() {
+    return this.model !== null;
+  }
+  /**
+   * Generate text with the local model.
+   *
+   * We dispose the old context and create a fresh one for each call.
+   * This guarantees no leftover state from the previous generation
+   * and avoids accumulating sequences that eat into the finite context.
+   */
+  async generate(systemPrompt, userMessage) {
+    var _a2;
+    if (!this.model) {
+      throw new Error("Local model not initialized. Download & load it first.");
+    }
+    const { LlamaChatSession } = await loadLlamaModule();
+    const ctx = await this.model.createContext({
+      contextSize: 4096,
+      sequences: 1
+    });
+    const session = new LlamaChatSession({
+      contextSequence: ctx.getSequence(),
+      systemPrompt
+    });
+    try {
+      const response = await session.prompt(userMessage, {
+        maxTokens: 2048,
+        temperature: 0.2
+      });
+      return response;
+    } finally {
+      try {
+        (_a2 = session.dispose) == null ? void 0 : _a2.call(session);
+      } catch {
+      }
+      try {
+        await ctx.dispose();
+      } catch {
+      }
+    }
+  }
+  /** Release all resources. */
+  async dispose() {
+    var _a2;
+    try {
+      await ((_a2 = this.model) == null ? void 0 : _a2.dispose());
+    } catch {
+    }
+    this.model = null;
+    this.llama = null;
+    console.log("[LocalModel] Disposed");
+  }
+}
 dotenv.config({ path: path$2.join(process.cwd(), ".env") });
+const localModelService = new LocalModelService();
+const modelDownloader = new ModelDownloader();
 let openaiClient = null;
 function getOpenAI() {
   const prefs = preferencesStore.get("preferences");
@@ -22835,20 +23043,55 @@ function buildContextLayer() {
   };
 }
 async function planWorkflow(command) {
+  const prefs = preferencesStore.get("preferences");
   const context = buildContextLayer();
   const contextJson = JSON.stringify(context, null, 2);
-  const client = getOpenAI();
-  const completion = await client.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { role: "system", content: WORKFLOW_PLANNER_PROMPT },
-      { role: "system", content: `Context: 
+  let content2;
+  if (prefs.modelType === "local") {
+    if (!localModelService.isInitialized()) {
+      const downloaded = await modelDownloader.isDownloaded();
+      if (!downloaded) {
+        throw new Error("Local model not downloaded. Please download it in Settings.");
+      }
+      await localModelService.initialize(modelDownloader.getModelPath());
+    }
+    const combinedSystem = WORKFLOW_PLANNER_PROMPT + `
+
+Context:
+${contextJson}`;
+    const rawResponse = await localModelService.generate(combinedSystem, command);
+    console.log("[Local Model Raw Response]:\n", rawResponse);
+    content2 = rawResponse.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const firstBrace = content2.indexOf("{");
+    if (firstBrace >= 0) {
+      let depth = 0;
+      let end = -1;
+      for (let i = firstBrace; i < content2.length; i++) {
+        if (content2[i] === "{") depth++;
+        else if (content2[i] === "}") depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+      if (end > firstBrace) {
+        content2 = content2.substring(firstBrace, end + 1);
+      }
+    }
+  } else {
+    const client = getOpenAI();
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: WORKFLOW_PLANNER_PROMPT },
+        { role: "system", content: `Context: 
 ${contextJson} ` },
-      { role: "user", content: command }
-    ],
-    response_format: { type: "json_object" }
-  });
-  const content2 = completion.choices[0].message.content || "{}";
+        { role: "user", content: command }
+      ],
+      response_format: { type: "json_object" }
+    });
+    content2 = completion.choices[0].message.content || "{}";
+  }
   try {
     const plan = JSON.parse(content2);
     if (!plan.steps) throw new Error("No steps generated");
@@ -22862,16 +23105,29 @@ ${contextJson} ` },
     throw new Error("Failed to parse LLM plan: " + e);
   }
 }
+const TRANSFORM_SYSTEM_PROMPT = `You are a text transformation assistant. Your goal is to strictly follow the transformation instruction. Modify the text only as much as needed to fulfill the request. Maintain the core idea and original style. Do not overly transform or rewrite unnecessarily. Be concise. Return ONLY the transformed text. No explanation.`;
 async function transformText(text, instruction) {
+  const prefs = preferencesStore.get("preferences");
+  const userMessage = `Instruction: ${instruction}
+
+Input Text:
+${text}`;
+  if (prefs.modelType === "local") {
+    if (!localModelService.isInitialized()) {
+      const downloaded = await modelDownloader.isDownloaded();
+      if (!downloaded) {
+        throw new Error("Local model not downloaded. Please download it in Settings.");
+      }
+      await localModelService.initialize(modelDownloader.getModelPath());
+    }
+    return await localModelService.generate(TRANSFORM_SYSTEM_PROMPT, userMessage);
+  }
   const client = getOpenAI();
   const completion = await client.chat.completions.create({
     model: "gpt-4o",
     messages: [
-      { role: "system", content: `You are a text transformation assistant. Your goal is to strictly follow the transformation instruction. Modify the text only as much as needed to fulfill the request. Maintain the core idea and original style. Do not overly transform or rewrite unnecessarily. Be concise. Return ONLY the transformed text. No explanation.` },
-      { role: "user", content: `Instruction: ${instruction}
-
-Input Text:
-${text}` }
+      { role: "system", content: TRANSFORM_SYSTEM_PROMPT },
+      { role: "user", content: userMessage }
     ]
   });
   return completion.choices[0].message.content || "";
@@ -22927,11 +23183,44 @@ const preferencesStore = new ElectronStore({
 ipcMain$1.handle("get-preferences", () => {
   return preferencesStore.get("preferences");
 });
-ipcMain$1.handle("save-preferences", (_event, prefs) => {
+ipcMain$1.handle("save-preferences", async (_event, prefs) => {
+  const oldPrefs = preferencesStore.get("preferences");
   preferencesStore.set("preferences", prefs);
   openaiClient = null;
+  if (oldPrefs.modelType === "local" && prefs.modelType !== "local") {
+    await localModelService.dispose();
+  }
   refreshRegistryAndHotkeys();
   return { status: "success" };
+});
+ipcMain$1.handle("model:check-downloaded", async () => {
+  return await modelDownloader.isDownloaded();
+});
+ipcMain$1.handle("model:download", async (event) => {
+  try {
+    const modelPath = await modelDownloader.download((percent) => {
+      event.sender.send("model:download-progress", percent);
+    });
+    return { status: "success", path: modelPath };
+  } catch (e) {
+    console.error("[Model Download] Failed:", e);
+    return { status: "error", message: e.message };
+  }
+});
+ipcMain$1.handle("model:cancel-download", async () => {
+  modelDownloader.cancelDownload();
+  return { status: "success" };
+});
+ipcMain$1.handle("model:delete", async () => {
+  await localModelService.dispose();
+  await modelDownloader.deleteModel();
+  return { status: "success" };
+});
+ipcMain$1.handle("model:status", async () => {
+  const downloaded = await modelDownloader.isDownloaded();
+  const initialized = localModelService.isInitialized();
+  const size = await modelDownloader.getModelSize();
+  return { downloaded, initialized, sizeBytes: size };
 });
 ipcMain$1.handle("get-workflows", () => {
   return workflowStore.get("workflows", []);

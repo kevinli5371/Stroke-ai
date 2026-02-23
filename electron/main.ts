@@ -8,10 +8,18 @@ import os from 'node:os'
 import Store from 'electron-store'
 import OpenAI from 'openai'
 import dotenv from 'dotenv'
+import { ModelDownloader } from './services/ModelDownloader'
+import { LocalModelService } from './services/LocalModelService'
 
 // Load environment variables from the root .env file
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
+
+// ----------------------------------------
+// SINGLETONS: Local Model Service & Downloader
+// ----------------------------------------
+const localModelService = new LocalModelService();
+const modelDownloader = new ModelDownloader();
 
 // Dynamic OpenAI Client Wrapper
 // We need to re-instantiate or configure this when the key changes/is loaded.
@@ -485,21 +493,63 @@ function buildContextLayer(): any {
 }
 
 async function planWorkflow(command: string): Promise<any> {
+  const prefs = preferencesStore.get("preferences");
   const context = buildContextLayer();
   const contextJson = JSON.stringify(context, null, 2);
 
-  const client = getOpenAI();
-  const completion = await client.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { role: "system", content: WORKFLOW_PLANNER_PROMPT },
-      { role: "system", content: `Context: \n${contextJson} ` },
-      { role: "user", content: command },
-    ],
-    response_format: { type: "json_object" }
-  });
+  let content: string;
 
-  const content = completion.choices[0].message.content || "{}";
+  if (prefs.modelType === "local") {
+    // ---- Local Model Path ----
+    if (!localModelService.isInitialized()) {
+      const downloaded = await modelDownloader.isDownloaded();
+      if (!downloaded) {
+        throw new Error("Local model not downloaded. Please download it in Settings.");
+      }
+      await localModelService.initialize(modelDownloader.getModelPath());
+    }
+
+    const combinedSystem = WORKFLOW_PLANNER_PROMPT + `\n\nContext:\n${contextJson}`;
+    const rawResponse = await localModelService.generate(combinedSystem, command);
+
+    console.log("[Local Model Raw Response]:\n", rawResponse);
+
+    // Local models sometimes wrap JSON in markdown backticks — strip them
+    content = rawResponse
+      .replace(/```json\n?/g, "")
+      .replace(/```\n?/g, "")
+      .trim();
+
+    // Local models may output valid JSON followed by trailing commentary.
+    // Try to extract just the first JSON object.
+    const firstBrace = content.indexOf("{");
+    if (firstBrace >= 0) {
+      let depth = 0;
+      let end = -1;
+      for (let i = firstBrace; i < content.length; i++) {
+        if (content[i] === "{") depth++;
+        else if (content[i] === "}") depth--;
+        if (depth === 0) { end = i; break; }
+      }
+      if (end > firstBrace) {
+        content = content.substring(firstBrace, end + 1);
+      }
+    }
+  } else {
+    // ---- OpenAI Path (default) ----
+    const client = getOpenAI();
+    const completion = await client.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: WORKFLOW_PLANNER_PROMPT },
+        { role: "system", content: `Context: \n${contextJson} ` },
+        { role: "user", content: command },
+      ],
+      response_format: { type: "json_object" },
+    });
+    content = completion.choices[0].message.content || "{}";
+  }
+
   try {
     const plan = JSON.parse(content);
     if (!plan.steps) throw new Error("No steps generated");
@@ -512,26 +562,38 @@ async function planWorkflow(command: string): Promise<any> {
       console.log(`[Planner Reasoning]: ${plan.reasoning} `);
     }
 
-    // Auto-save? The server.py did. But let's just return it for now, 
-    // as the Dashboard "Save" button triggers the save.
-    // Actually server.py said: WORKFLOWS[workflow_id] = workflow; save_workflows();
-    // But the Dashboard seems to call saveWorkflow immediately if data.workflow exists.
-    // Let's just return the object.
     return plan;
   } catch (e) {
     throw new Error("Failed to parse LLM plan: " + e);
   }
 }
 
+const TRANSFORM_SYSTEM_PROMPT = `You are a text transformation assistant. Your goal is to strictly follow the transformation instruction. Modify the text only as much as needed to fulfill the request. Maintain the core idea and original style. Do not overly transform or rewrite unnecessarily. Be concise. Return ONLY the transformed text. No explanation.`;
+
 async function transformText(text: string, instruction: string): Promise<string> {
+  const prefs = preferencesStore.get("preferences");
+  const userMessage = `Instruction: ${instruction}\n\nInput Text:\n${text}`;
+
+  if (prefs.modelType === "local") {
+    // ---- Local Model Path ----
+    if (!localModelService.isInitialized()) {
+      const downloaded = await modelDownloader.isDownloaded();
+      if (!downloaded) {
+        throw new Error("Local model not downloaded. Please download it in Settings.");
+      }
+      await localModelService.initialize(modelDownloader.getModelPath());
+    }
+    return await localModelService.generate(TRANSFORM_SYSTEM_PROMPT, userMessage);
+  }
+
+  // ---- OpenAI Path (default) ----
   const client = getOpenAI();
-  // const username = os.userInfo().username;  // use this as context eventually
   const completion = await client.chat.completions.create({
     model: "gpt-4o",
     messages: [
-      { role: "system", content: `You are a text transformation assistant. Your goal is to strictly follow the transformation instruction. Modify the text only as much as needed to fulfill the request. Maintain the core idea and original style. Do not overly transform or rewrite unnecessarily. Be concise. Return ONLY the transformed text. No explanation.` },
-      { role: "user", content: `Instruction: ${instruction}\n\nInput Text:\n${text}` }
-    ]
+      { role: "system", content: TRANSFORM_SYSTEM_PROMPT },
+      { role: "user", content: userMessage },
+    ],
   });
   return completion.choices[0].message.content || "";
 }
@@ -606,6 +668,7 @@ interface Preferences {
   defaultBrowser: string;
   theme?: "light" | "dark";
   overlayHotkey?: { mods: string[]; key: string };
+  modelType?: "openai" | "local";
 }
 
 const preferencesStore = new Store<{ preferences: Preferences }>({
@@ -623,13 +686,58 @@ ipcMain.handle("get-preferences", () => {
   return preferencesStore.get("preferences");
 });
 
-ipcMain.handle("save-preferences", (_event, prefs: Preferences) => {
+ipcMain.handle("save-preferences", async (_event, prefs: Preferences) => {
+  const oldPrefs = preferencesStore.get("preferences");
   preferencesStore.set("preferences", prefs);
   // Reset OpenAI client so next call picks up new key
   openaiClient = null;
+
+  // If switching away from local model, dispose to free memory
+  if (oldPrefs.modelType === "local" && prefs.modelType !== "local") {
+    await localModelService.dispose();
+  }
+
   // Re-register hotkeys in case overlay key changed
   refreshRegistryAndHotkeys();
   return { status: "success" };
+});
+
+// ----------------------------------------
+// LOCAL MODEL MANAGEMENT IPC
+// ----------------------------------------
+
+ipcMain.handle("model:check-downloaded", async () => {
+  return await modelDownloader.isDownloaded();
+});
+
+ipcMain.handle("model:download", async (event) => {
+  try {
+    const modelPath = await modelDownloader.download((percent) => {
+      event.sender.send("model:download-progress", percent);
+    });
+    return { status: "success", path: modelPath };
+  } catch (e: any) {
+    console.error("[Model Download] Failed:", e);
+    return { status: "error", message: e.message };
+  }
+});
+
+ipcMain.handle("model:cancel-download", async () => {
+  modelDownloader.cancelDownload();
+  return { status: "success" };
+});
+
+ipcMain.handle("model:delete", async () => {
+  await localModelService.dispose();
+  await modelDownloader.deleteModel();
+  return { status: "success" };
+});
+
+ipcMain.handle("model:status", async () => {
+  const downloaded = await modelDownloader.isDownloaded();
+  const initialized = localModelService.isInitialized();
+  const size = await modelDownloader.getModelSize();
+  return { downloaded, initialized, sizeBytes: size };
 });
 
 ipcMain.handle("get-workflows", () => {

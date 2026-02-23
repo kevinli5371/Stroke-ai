@@ -13,6 +13,13 @@ export default function Settings({ onValidityChange }: SettingsProps) {
     const [theme, setTheme] = useState("dark");
     const [overlayHotkey, setOverlayHotkey] = useState<{ mods: string[], key: string }>({ mods: ["cmd", "alt"], key: "O" });
 
+    // Model selection state
+    const [modelType, setModelType] = useState<"openai" | "local">("openai");
+    const [modelDownloaded, setModelDownloaded] = useState(false);
+    const [modelDownloading, setModelDownloading] = useState(false);
+    const [downloadProgress, setDownloadProgress] = useState(0);
+    const [modelError, setModelError] = useState<string | null>(null);
+
     // Conflict detection state
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [workflows, setWorkflows] = useState<any[]>([]);
@@ -26,9 +33,15 @@ export default function Settings({ onValidityChange }: SettingsProps) {
                     setApiKey(prefs.apiKey || "");
                     setDefaultBrowser(prefs.defaultBrowser || "Google Chrome");
                     setTheme(prefs.theme || "dark");
+                    setModelType(prefs.modelType || "openai");
                     if (prefs.overlayHotkey) {
                         setOverlayHotkey(prefs.overlayHotkey);
                     }
+                }
+                // Check local model status
+                if (window.electron && window.electron.modelCheckDownloaded) {
+                    const downloaded = await window.electron.modelCheckDownloaded();
+                    setModelDownloaded(downloaded);
                 }
                 // Load workflows for conflict detection
                 if (window.electron && window.electron.getWorkflows) {
@@ -44,16 +57,70 @@ export default function Settings({ onValidityChange }: SettingsProps) {
         load();
     }, []);
 
-    const savePreferences = async (newPrefs: { apiKey: string, defaultBrowser: string, theme: string, overlayHotkey?: { mods: string[], key: string } }) => {
+    // Listen for download progress events from main process
+    useEffect(() => {
+        const handler = (_event: unknown, percent: number) => {
+            setDownloadProgress(percent);
+            if (percent >= 100) {
+                setModelDownloading(false);
+                setModelDownloaded(true);
+            }
+        };
+        if (window.ipcRenderer) {
+            window.ipcRenderer.on('model:download-progress', handler);
+        }
+        return () => {
+            if (window.ipcRenderer) {
+                window.ipcRenderer.removeAllListeners('model:download-progress');
+            }
+        };
+    }, []);
+
+    const savePreferences = async (newPrefs: { apiKey: string, defaultBrowser: string, theme: string, overlayHotkey?: { mods: string[], key: string }, modelType?: "openai" | "local" }) => {
         try {
             await window.electron.savePreferences({
                 apiKey: newPrefs.apiKey,
                 defaultBrowser: newPrefs.defaultBrowser,
                 theme: newPrefs.theme as "light" | "dark",
-                overlayHotkey: newPrefs.overlayHotkey
+                overlayHotkey: newPrefs.overlayHotkey,
+                modelType: newPrefs.modelType,
             });
         } catch (e) {
             console.error("Failed to auto-save settings", e);
+        }
+    };
+
+    const handleModelDownload = async () => {
+        setModelDownloading(true);
+        setDownloadProgress(0);
+        setModelError(null);
+        try {
+            const result = await window.electron.modelDownload();
+            if (result.status === "error") {
+                setModelError(result.message || "Download failed");
+                setModelDownloading(false);
+            }
+            // Progress & completion handled by IPC listener above
+        } catch (e) {
+            setModelError(String(e));
+            setModelDownloading(false);
+        }
+    };
+
+    const handleModelCancel = async () => {
+        try {
+            await window.electron.modelCancelDownload();
+        } catch { /* ignore */ }
+        setModelDownloading(false);
+        setDownloadProgress(0);
+    };
+
+    const handleModelDelete = async () => {
+        try {
+            await window.electron.modelDelete();
+            setModelDownloaded(false);
+        } catch (e) {
+            setModelError(String(e));
         }
     };
 
@@ -79,7 +146,7 @@ export default function Settings({ onValidityChange }: SettingsProps) {
     useEffect(() => {
         if (!initialLoad) return;
         const timer = setTimeout(() => {
-            savePreferences({ apiKey, defaultBrowser, theme, overlayHotkey });
+            savePreferences({ apiKey, defaultBrowser, theme, overlayHotkey, modelType });
         }, 800);
         return () => clearTimeout(timer);
     }, [apiKey]);
@@ -88,9 +155,9 @@ export default function Settings({ onValidityChange }: SettingsProps) {
     useEffect(() => {
         if (!initialLoad) return;
         if (!conflictError) {
-            savePreferences({ apiKey, defaultBrowser, theme, overlayHotkey });
+            savePreferences({ apiKey, defaultBrowser, theme, overlayHotkey, modelType });
         }
-    }, [defaultBrowser, theme, overlayHotkey]);
+    }, [defaultBrowser, theme, overlayHotkey, modelType]);
 
     // Apply theme immediately when changed in settings for preview
     useEffect(() => {
@@ -104,19 +171,109 @@ export default function Settings({ onValidityChange }: SettingsProps) {
             </header>
 
             <div className="settings-form">
+                {/* ---- Model Provider Toggle ---- */}
                 <div className="form-group">
-                    <label>OpenAI API Key</label>
-                    <input
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        placeholder="sk-..."
-                    />
-                    <p className="help-text">
-                        Required for planning and transformations.
-                        Stored locally on your device.
-                    </p>
+                    <label>Model Provider</label>
+                    <div className="model-selection">
+                        <button
+                            className={`model-option ${modelType === "openai" ? "selected" : ""}`}
+                            onClick={() => setModelType("openai")}
+                        >
+                            <span className="model-option-radio" />
+                            <div className="model-option-content">
+                                <span className="model-option-title">OpenAI API</span>
+                                <span className="model-option-desc">Cloud-based, fastest results</span>
+                            </div>
+                        </button>
+                        <button
+                            className={`model-option ${modelType === "local" ? "selected" : ""}`}
+                            onClick={() => setModelType("local")}
+                        >
+                            <span className="model-option-radio" />
+                            <div className="model-option-content">
+                                <span className="model-option-title">Local Model</span>
+                                <span className="model-option-desc">Privacy mode, runs on-device</span>
+                            </div>
+                        </button>
+                    </div>
                 </div>
+
+                {/* ---- OpenAI Section ---- */}
+                {modelType === "openai" && (
+                    <div className="form-group">
+                        <label>OpenAI API Key</label>
+                        <input
+                            type="password"
+                            value={apiKey}
+                            onChange={(e) => setApiKey(e.target.value)}
+                            placeholder="sk-..."
+                        />
+                        <p className="help-text">
+                            Required for planning and transformations.
+                            Stored locally on your device.
+                        </p>
+                    </div>
+                )}
+
+                {/* ---- Local Model Section ---- */}
+                {modelType === "local" && (
+                    <div className="form-group">
+                        <label>Local Model (Phi-3.5 Mini)</label>
+
+                        {/* Downloading state */}
+                        {modelDownloading && (
+                            <div className="model-download-status">
+                                <div className="model-progress-bar">
+                                    <div
+                                        className="model-progress-bar-fill"
+                                        style={{ width: `${downloadProgress}%` }}
+                                    />
+                                </div>
+                                <div className="model-progress-label">
+                                    <span>Downloading... {downloadProgress}%</span>
+                                    <button className="model-link-btn" onClick={handleModelCancel}>
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Not downloaded */}
+                        {!modelDownloading && !modelDownloaded && (
+                            <div className="model-download-status">
+                                <p className="model-status">
+                                    <span className="model-status-dot not-ready" />
+                                    Not downloaded (~2.3 GB required)
+                                </p>
+                                <button className="model-download-btn" onClick={handleModelDownload}>
+                                    Download Model
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Downloaded */}
+                        {!modelDownloading && modelDownloaded && (
+                            <div className="model-download-status">
+                                <p className="model-status ready">
+                                    <span className="model-status-dot ready" />
+                                    Model downloaded — Ready to use
+                                </p>
+                                <button className="model-link-btn danger" onClick={handleModelDelete}>
+                                    Delete Model
+                                </button>
+                            </div>
+                        )}
+
+                        {modelError && (
+                            <p className="model-error">{modelError}</p>
+                        )}
+
+                        <p className="help-text">
+                            Runs entirely on your Mac. No data leaves your device.
+                            First use takes ~5-10s to load into memory.
+                        </p>
+                    </div>
+                )}
 
                 <div className="form-group">
                     <label>Theme</label>
