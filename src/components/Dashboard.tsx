@@ -3,6 +3,70 @@ import Settings from "./Settings";
 import { mapKeyboardEventToElectronKey } from "../utils/keyboard";
 import "../styles/Dashboard.css";
 
+const TOOL_COLORS: Record<string, { bg: string; text: string }> = {
+    debug_log:           { bg: "rgba(158,158,158,0.15)", text: "#9e9e9e" },
+    wait:                { bg: "rgba(158,158,158,0.15)", text: "#9e9e9e" },
+    open_url:            { bg: "rgba(96,165,250,0.15)",  text: "#60a5fa" },
+    open_app:            { bg: "rgba(129,140,248,0.15)", text: "#818cf8" },
+    focus_url_bar:       { bg: "rgba(56,189,248,0.15)",  text: "#38bdf8" },
+    copy_selection:      { bg: "rgba(52,211,153,0.15)",  text: "#34d399" },
+    paste_clipboard:     { bg: "rgba(74,222,128,0.15)",  text: "#4ade80" },
+    append_to_clipboard: { bg: "rgba(45,212,191,0.15)",  text: "#2dd4bf" },
+    replace_clipboard:   { bg: "rgba(16,185,129,0.15)",  text: "#10b981" },
+    transform_clipboard: { bg: "rgba(192,132,252,0.15)", text: "#c084fc" },
+    analyze_screen:      { bg: "rgba(232,121,249,0.15)", text: "#e879f9" },
+    snap_window:         { bg: "rgba(251,191,36,0.15)",  text: "#fbbf24" },
+    press_enter:         { bg: "rgba(251,146,60,0.15)",  text: "#fb923c" },
+    press_key:           { bg: "rgba(244,114,82,0.15)",  text: "#f47252" },
+    capture_screen:      { bg: "rgba(248,113,113,0.15)", text: "#f87171" },
+    show_sticky_note:    { bg: "rgba(253,224,71,0.15)",  text: "#fde047" },
+};
+
+const TOOL_LABELS: Record<string, string> = {
+    debug_log: "Log",
+    wait: "Wait",
+    open_url: "Open URL",
+    open_app: "Open App",
+    focus_url_bar: "URL Bar",
+    copy_selection: "Copy",
+    paste_clipboard: "Paste",
+    append_to_clipboard: "Append",
+    replace_clipboard: "Replace",
+    transform_clipboard: "Transform",
+    analyze_screen: "Analyze",
+    snap_window: "Snap",
+    press_enter: "Enter",
+    press_key: "Key",
+    capture_screen: "Capture",
+    show_sticky_note: "Sticky Note",
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function formatStepValue(tool: string, input: any): string {
+    if (!input || Object.keys(input).length === 0) return "";
+    const sub = (v: unknown) => v === "$PREVIOUS_RESULT" ? "previous result" : String(v);
+
+    switch (tool) {
+        case "wait":
+            return `${input.seconds}s`;
+        case "press_key": {
+            const mods = input.mods?.length ? input.mods.join("+") + "+" : "";
+            return mods + sub(input.key);
+        }
+        case "snap_window":
+            return input.app_name ? `${sub(input.target)} · ${sub(input.app_name)}` : sub(input.target);
+        default: {
+            const vals = Object.values(input).filter(v => v !== undefined && v !== null);
+            return vals.map(sub).join(" · ");
+        }
+    }
+}
+
+function truncateText(str: string, max: number): string {
+    if (str.length <= max) return str;
+    return str.slice(0, max) + "…";
+}
+
 export default function Dashboard() {
     const [activeTab, setActiveTab] = useState("home"); // home, runs, settings
     const [command, setCommand] = useState("");
@@ -387,9 +451,7 @@ export default function Dashboard() {
                                                         {wf.steps && wf.steps.length > 0 && (
                                                             <div className="steps-list">
                                                                 {wf.steps.map((s: any, idx: number) => (
-                                                                    <div key={idx} className="step-item">
-                                                                        - {s.tool} {s.input && Object.keys(s.input).length > 0 ? `(${JSON.stringify(s.input)})` : ""}
-                                                                    </div>
+                                                                    <StepPill key={idx} step={s} />
                                                                 ))}
                                                             </div>
                                                         )}
@@ -503,6 +565,40 @@ function MasonryGrid({ items, renderItem }: { items: any[], renderItem: (item: a
                     {col.map(item => renderItem(item))}
                 </div>
             ))}
+        </div>
+    );
+}
+
+function StepPill({ step }: { step: { tool: string; input?: Record<string, unknown> } }) {
+    const [expanded, setExpanded] = useState(false);
+    const colors = TOOL_COLORS[step.tool] || { bg: "rgba(158,158,158,0.15)", text: "#9e9e9e" };
+    const label = TOOL_LABELS[step.tool] || step.tool;
+    const fullValue = formatStepValue(step.tool, step.input);
+    const summary = truncateText(fullValue, 40);
+    const isExpandable = fullValue.length > 40;
+    const displayText = expanded ? fullValue : summary;
+
+    return (
+        <div className="step-item">
+            <div
+                className={`step-pill-row ${isExpandable ? "expandable" : ""} ${expanded ? "expanded" : ""}`}
+                onClick={() => isExpandable && setExpanded(!expanded)}
+            >
+                <span
+                    className="tool-pill"
+                    style={{ background: colors.bg, color: colors.text }}
+                >
+                    {label}
+                </span>
+                {displayText && (
+                    <span className={`step-summary ${expanded ? "step-summary-expanded" : ""}`}>
+                        {displayText}
+                    </span>
+                )}
+                {isExpandable && (
+                    <span className={`step-chevron ${expanded ? "expanded" : ""}`}>›</span>
+                )}
+            </div>
         </div>
     );
 }
