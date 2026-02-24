@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Settings from "./Settings";
 import { mapKeyboardEventToElectronKey } from "../utils/keyboard";
 import "../styles/Dashboard.css";
@@ -442,7 +442,7 @@ export default function Dashboard() {
                                                             <div className="card-title">{wf.name || "Untitled"}</div>
                                                             <div className="card-menu">
                                                                 <button onClick={() => startEditing(wf)}>Edit</button>
-                                                                <button onClick={() => handleDelete(wf.id)}>Del</button>
+                                                                <button onClick={() => handleDelete(wf.id)} className="danger">Del</button>
                                                             </div>
                                                         </div>
                                                         <div className="hotkey-badge">
@@ -571,12 +571,29 @@ function MasonryGrid({ items, renderItem }: { items: any[], renderItem: (item: a
 
 function StepPill({ step }: { step: { tool: string; input?: Record<string, unknown> } }) {
     const [expanded, setExpanded] = useState(false);
+    const [isOverflowing, setIsOverflowing] = useState(false);
+    const summaryRef = useRef<HTMLSpanElement>(null);
     const colors = TOOL_COLORS[step.tool] || { bg: "rgba(158,158,158,0.15)", text: "#9e9e9e" };
     const label = TOOL_LABELS[step.tool] || step.tool;
     const fullValue = formatStepValue(step.tool, step.input);
     const summary = truncateText(fullValue, 40);
-    const isExpandable = fullValue.length > 40;
+    const isTruncatedByJs = fullValue.length > 40;
     const displayText = expanded ? fullValue : summary;
+
+    const checkOverflow = useCallback(() => {
+        const el = summaryRef.current;
+        if (el && !expanded) {
+            setIsOverflowing(el.scrollWidth > el.clientWidth);
+        }
+    }, [expanded]);
+
+    useEffect(() => {
+        checkOverflow();
+        window.addEventListener("resize", checkOverflow);
+        return () => window.removeEventListener("resize", checkOverflow);
+    }, [checkOverflow]);
+
+    const isExpandable = isTruncatedByJs || isOverflowing;
 
     return (
         <div className="step-item">
@@ -584,14 +601,19 @@ function StepPill({ step }: { step: { tool: string; input?: Record<string, unkno
                 className={`step-pill-row ${isExpandable ? "expandable" : ""} ${expanded ? "expanded" : ""}`}
                 onClick={() => isExpandable && setExpanded(!expanded)}
             >
-                <span
-                    className="tool-pill"
-                    style={{ background: colors.bg, color: colors.text }}
-                >
-                    {label}
+                <span className="tool-pill-slot">
+                    <span
+                        className="tool-pill"
+                        style={{ background: colors.bg, color: colors.text }}
+                    >
+                        {label}
+                    </span>
                 </span>
                 {displayText && (
-                    <span className={`step-summary ${expanded ? "step-summary-expanded" : ""}`}>
+                    <span
+                        ref={summaryRef}
+                        className={`step-summary ${expanded ? "step-summary-expanded" : ""}`}
+                    >
                         {displayText}
                     </span>
                 )}

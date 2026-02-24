@@ -355,6 +355,10 @@ html {
     color: var(--text-main);
 }
 
+.card-menu button.danger:hover {
+    color: #ff453a;
+}
+
 /* Data Display */
 .hotkey-badge {
     background: var(--bg-element);
@@ -374,8 +378,7 @@ html {
     margin-top: 0.25rem;
     /* Reduced from 0.5rem */
     border-top: 1px solid var(--border-subtle);
-    padding-top: 0.5rem;
-    /* Reduced from 0.75rem */
+    padding-top: 0.75rem;
 }
 
 .step-item {
@@ -386,8 +389,14 @@ html {
 .step-pill-row {
     display: flex;
     align-items: flex-start;
-    gap: 0.4rem;
+    gap: 0.8rem;
     min-width: 0;
+}
+
+.tool-pill-slot {
+    width: 72px;
+    flex-shrink: 0;
+    display: flex;
 }
 
 .step-pill-row.expandable {
@@ -401,6 +410,7 @@ html {
 .tool-pill {
     display: inline-flex;
     align-items: center;
+    justify-content: flex-start;
     padding: 0.15rem 0.55rem;
     border-radius: 999px;
     font-size: 0.7rem;
@@ -409,6 +419,7 @@ html {
     flex-shrink: 0;
     letter-spacing: 0.01em;
     margin-top: 1px;
+    width: 100%;
 }
 
 .step-summary {
