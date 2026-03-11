@@ -10,7 +10,13 @@ electron.contextBridge.exposeInMainWorld("electron", {
   planWorkflow: (command) => electron.ipcRenderer.invoke("plan-workflow", command),
   getPreferences: () => electron.ipcRenderer.invoke("get-preferences"),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  savePreferences: (prefs) => electron.ipcRenderer.invoke("save-preferences", prefs)
+  savePreferences: (prefs) => electron.ipcRenderer.invoke("save-preferences", prefs),
+  // Local Model Management
+  modelCheckDownloaded: () => electron.ipcRenderer.invoke("model:check-downloaded"),
+  modelDownload: () => electron.ipcRenderer.invoke("model:download"),
+  modelCancelDownload: () => electron.ipcRenderer.invoke("model:cancel-download"),
+  modelDelete: () => electron.ipcRenderer.invoke("model:delete"),
+  modelStatus: () => electron.ipcRenderer.invoke("model:status")
 });
 electron.contextBridge.exposeInMainWorld("ipcRenderer", {
   on(...args) {

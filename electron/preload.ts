@@ -11,6 +11,13 @@ contextBridge.exposeInMainWorld('electron', {
   getPreferences: () => ipcRenderer.invoke('get-preferences'),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   savePreferences: (prefs: any) => ipcRenderer.invoke('save-preferences', prefs),
+
+  // Local Model Management
+  modelCheckDownloaded: () => ipcRenderer.invoke('model:check-downloaded'),
+  modelDownload: () => ipcRenderer.invoke('model:download'),
+  modelCancelDownload: () => ipcRenderer.invoke('model:cancel-download'),
+  modelDelete: () => ipcRenderer.invoke('model:delete'),
+  modelStatus: () => ipcRenderer.invoke('model:status'),
 })
 
 // --------- Expose some API to the Renderer process ---------
